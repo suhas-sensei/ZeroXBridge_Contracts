@@ -35,20 +35,13 @@ contract ZeroXBridge is Ownable {
     IERC20 public token;
 
     // Events
-    event FundsUnlocked(
-        address indexed user,
-        uint256 amount,
-        bytes32 commitmentHash
-    );
+    event FundsUnlocked(address indexed user, uint256 amount, bytes32 commitmentHash);
     event RelayerStatusChanged(address indexed relayer, bool status);
     event FundsClaimed(address indexed user, uint256 amount);
 
-    constructor(
-        address _gpsVerifier,
-        uint256 _cairoVerifierId,
-        address _initialOwner,
-        address _token
-    ) Ownable(_initialOwner) {
+    constructor(address _gpsVerifier, uint256 _cairoVerifierId, address _initialOwner, address _token)
+        Ownable(_initialOwner)
+    {
         gpsVerifier = IGpsStatementVerifier(_gpsVerifier);
         cairoVerifierId = _cairoVerifierId;
         token = IERC20(_token);
@@ -75,25 +68,13 @@ contract ZeroXBridge is Ownable {
         uint256 l2TxId,
         bytes32 commitmentHash
     ) external {
-        require(
-            approvedRelayers[msg.sender],
-            "ZeroXBridge: Only approved relayers can submit proofs"
-        );
+        require(approvedRelayers[msg.sender], "ZeroXBridge: Only approved relayers can submit proofs");
 
         // Verify that commitmentHash matches expected format based on L2 standards
-        bytes32 expectedCommitmentHash = keccak256(
-            abi.encodePacked(
-                uint256(uint160(user)),
-                amount,
-                l2TxId,
-                block.chainid
-            )
-        );
+        bytes32 expectedCommitmentHash =
+            keccak256(abi.encodePacked(uint256(uint160(user)), amount, l2TxId, block.chainid));
 
-        require(
-            commitmentHash == expectedCommitmentHash,
-            "ZeroXBridge: Invalid commitment hash"
-        );
+        require(commitmentHash == expectedCommitmentHash, "ZeroXBridge: Invalid commitment hash");
 
         // Create the public inputs array with all verification parameters
         uint256[] memory publicInputs = new uint256[](4);
@@ -104,25 +85,14 @@ contract ZeroXBridge is Ownable {
 
         // Check that this proof hasn't been used before
         bytes32 proofHash = keccak256(abi.encodePacked(proof));
-        require(
-            !verifiedProofs[proofHash],
-            "ZeroXBridge: Proof has already been used"
-        );
+        require(!verifiedProofs[proofHash], "ZeroXBridge: Proof has already been used");
 
         // Verify the proof using Starknet's verifier
-        bool isValid = gpsVerifier.verifyProofAndRegister(
-            proofParams,
-            proof,
-            publicInputs,
-            cairoVerifierId
-        );
+        bool isValid = gpsVerifier.verifyProofAndRegister(proofParams, proof, publicInputs, cairoVerifierId);
 
         require(isValid, "ZeroXBridge: Invalid proof");
 
-        require(
-            !verifiedProofs[commitmentHash],
-            "ZeroXBridge: Commitment already processed"
-        );
+        require(!verifiedProofs[commitmentHash], "ZeroXBridge: Commitment already processed");
         verifiedProofs[commitmentHash] = true;
 
         // Store the proof hash to prevent replay attacks

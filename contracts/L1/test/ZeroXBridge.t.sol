@@ -16,6 +16,7 @@ contract MockERC20 is ERC20 {
     }
 }
 // Mock GPS Statement Verifier for testing
+
 contract MockGpsStatementVerifier is IGpsStatementVerifier {
     bool public shouldVerifySucceed = true;
     mapping(bytes32 => bool) public registeredProofs;
@@ -40,9 +41,7 @@ contract MockGpsStatementVerifier is IGpsStatementVerifier {
         return false;
     }
 
-    function isProofRegistered(
-        uint256[] calldata proof
-    ) external view returns (bool) {
+    function isProofRegistered(uint256[] calldata proof) external view returns (bool) {
         bytes32 proofHash = keccak256(abi.encodePacked(proof));
         return registeredProofs[proofHash];
     }
@@ -64,11 +63,7 @@ contract ZeroXBridgeTest is Test {
     uint256[] public proofParams;
     uint256[] public proof;
 
-    event FundsUnlocked(
-        address indexed user,
-        uint256 amount,
-        bytes32 commitmentHash
-    );
+    event FundsUnlocked(address indexed user, uint256 amount, bytes32 commitmentHash);
 
     event RelayerStatusChanged(address indexed relayer, bool status);
 
@@ -84,12 +79,7 @@ contract ZeroXBridgeTest is Test {
         token = new MockERC20("MockToken", "MTK");
 
         // Initialize bridge with mock verifier
-        bridge = new ZeroXBridge(
-            address(mockVerifier),
-            cairoVerifierId,
-            owner,
-            address(token)
-        );
+        bridge = new ZeroXBridge(address(mockVerifier), cairoVerifierId, owner, address(token));
 
         // Setup approved relayer
         bridge.setRelayerStatus(relayer, true);
@@ -154,40 +144,17 @@ contract ZeroXBridgeTest is Test {
     function testOnlyApprovedRelayersCanSubmitProofs() public {
         uint256 amount = 1 ether;
         uint256 l2TxId = 12345;
-        bytes32 commitmentHash = keccak256(
-            abi.encodePacked(
-                uint256(uint160(user1)),
-                amount,
-                l2TxId,
-                block.chainid
-            )
-        );
+        bytes32 commitmentHash = keccak256(abi.encodePacked(uint256(uint160(user1)), amount, l2TxId, block.chainid));
 
         // Non-relayer attempt should fail
         vm.startPrank(nonRelayer);
-        vm.expectRevert(
-            "ZeroXBridge: Only approved relayers can submit proofs"
-        );
-        bridge.unlock_funds_with_proof(
-            proofParams,
-            proof,
-            user1,
-            amount,
-            l2TxId,
-            commitmentHash
-        );
+        vm.expectRevert("ZeroXBridge: Only approved relayers can submit proofs");
+        bridge.unlock_funds_with_proof(proofParams, proof, user1, amount, l2TxId, commitmentHash);
         vm.stopPrank();
 
         // Approved relayer should succeed (assuming valid proof)
         vm.prank(relayer);
-        bridge.unlock_funds_with_proof(
-            proofParams,
-            proof,
-            user1,
-            amount,
-            l2TxId,
-            commitmentHash
-        );
+        bridge.unlock_funds_with_proof(proofParams, proof, user1, amount, l2TxId, commitmentHash);
 
         // Verify funds were added
         assertEq(bridge.claimableFunds(user1), amount);
@@ -222,14 +189,7 @@ contract ZeroXBridgeTest is Test {
     function testSuccessfulProofVerification() public {
         uint256 amount = 2 ** 18; // amount to unlock
         uint256 l2TxId = 12345;
-        bytes32 commitmentHash = keccak256(
-            abi.encodePacked(
-                uint256(uint160(user1)),
-                amount,
-                l2TxId,
-                block.chainid
-            )
-        );
+        bytes32 commitmentHash = keccak256(abi.encodePacked(uint256(uint160(user1)), amount, l2TxId, block.chainid));
 
         // Ensure mock verifier will succeed
         mockVerifier.setShouldVerifySucceed(true);
@@ -237,14 +197,7 @@ contract ZeroXBridgeTest is Test {
         vm.prank(relayer);
         vm.expectEmit(true, true, true, true);
         emit FundsUnlocked(user1, amount, commitmentHash);
-        bridge.unlock_funds_with_proof(
-            proofParams,
-            proof,
-            user1,
-            amount,
-            l2TxId,
-            commitmentHash
-        );
+        bridge.unlock_funds_with_proof(proofParams, proof, user1, amount, l2TxId, commitmentHash);
 
         // Verify funds were added
         assertEq(bridge.claimableFunds(user1), amount);
@@ -258,14 +211,7 @@ contract ZeroXBridgeTest is Test {
     function testFailingProofVerification() public {
         uint256 amount = 1 ether;
         uint256 l2TxId = 12345;
-        bytes32 commitmentHash = keccak256(
-            abi.encodePacked(
-                uint256(uint160(user1)),
-                amount,
-                l2TxId,
-                block.chainid
-            )
-        );
+        bytes32 commitmentHash = keccak256(abi.encodePacked(uint256(uint160(user1)), amount, l2TxId, block.chainid));
 
         // Set verifier to fail
         mockVerifier.setShouldVerifySucceed(false);
@@ -274,16 +220,7 @@ contract ZeroXBridgeTest is Test {
         // vm.expectRevert("ZeroXBridge: Invalid proof");
         vm.expectRevert(abi.encodePacked("ZeroXBridge: Invalid proof"));
 
-        try
-            bridge.unlock_funds_with_proof(
-                proofParams,
-                proof,
-                user1,
-                amount,
-                l2TxId,
-                commitmentHash
-            )
-        {
+        try bridge.unlock_funds_with_proof(proofParams, proof, user1, amount, l2TxId, commitmentHash) {
             fail();
         } catch (bytes memory revertData) {
             console2.log("Revert data:");
@@ -302,14 +239,7 @@ contract ZeroXBridgeTest is Test {
 
         vm.prank(relayer);
         vm.expectRevert("ZeroXBridge: Invalid commitment hash");
-        bridge.unlock_funds_with_proof(
-            proofParams,
-            proof,
-            user1,
-            amount,
-            l2TxId,
-            wrongCommitmentHash
-        );
+        bridge.unlock_funds_with_proof(proofParams, proof, user1, amount, l2TxId, wrongCommitmentHash);
     }
 
     // ========================
@@ -319,61 +249,26 @@ contract ZeroXBridgeTest is Test {
     function testPreventProofReuse() public {
         uint256 amount = 1 ether;
         uint256 l2TxId = 12345;
-        bytes32 commitmentHash = keccak256(
-            abi.encodePacked(
-                uint256(uint160(user1)),
-                amount,
-                l2TxId,
-                block.chainid
-            )
-        );
+        bytes32 commitmentHash = keccak256(abi.encodePacked(uint256(uint160(user1)), amount, l2TxId, block.chainid));
 
         // First attempt should succeed
         vm.prank(relayer);
-        bridge.unlock_funds_with_proof(
-            proofParams,
-            proof,
-            user1,
-            amount,
-            l2TxId,
-            commitmentHash
-        );
+        bridge.unlock_funds_with_proof(proofParams, proof, user1, amount, l2TxId, commitmentHash);
 
         // Same proof should be rejected
         vm.prank(relayer);
         vm.expectRevert("ZeroXBridge: Proof has already been used");
-        bridge.unlock_funds_with_proof(
-            proofParams,
-            proof,
-            user1,
-            amount,
-            l2TxId,
-            commitmentHash
-        );
+        bridge.unlock_funds_with_proof(proofParams, proof, user1, amount, l2TxId, commitmentHash);
     }
 
     function testPreventCommitmentReuse() public {
         uint256 amount = 1 ether;
         uint256 l2TxId = 12345;
-        bytes32 commitmentHash = keccak256(
-            abi.encodePacked(
-                uint256(uint160(user1)),
-                amount,
-                l2TxId,
-                block.chainid
-            )
-        );
+        bytes32 commitmentHash = keccak256(abi.encodePacked(uint256(uint160(user1)), amount, l2TxId, block.chainid));
 
         // First attempt should succeed
         vm.prank(relayer);
-        bridge.unlock_funds_with_proof(
-            proofParams,
-            proof,
-            user1,
-            amount,
-            l2TxId,
-            commitmentHash
-        );
+        bridge.unlock_funds_with_proof(proofParams, proof, user1, amount, l2TxId, commitmentHash);
 
         // Create different proof but same commitment
         uint256[] memory differentProof = new uint256[](proof.length);
@@ -389,14 +284,7 @@ contract ZeroXBridgeTest is Test {
         // Different proof but same commitment should be rejected
         vm.prank(relayer);
         vm.expectRevert("ZeroXBridge: Commitment already processed");
-        bridge.unlock_funds_with_proof(
-            proofParams,
-            differentProof,
-            user1,
-            amount,
-            l2TxId,
-            commitmentHash
-        );
+        bridge.unlock_funds_with_proof(proofParams, differentProof, user1, amount, l2TxId, commitmentHash);
     }
 
     // ========================
