@@ -2,8 +2,8 @@
 pragma solidity ^0.8.20;
 
 import "forge-std/Test.sol";
-import "forge-std/console2.sol";
-import "../src/ZeroXBridge.sol";
+import "forge-std/console.sol";
+import "../src/ZeroXBridgeL1.sol";
 import "@openzeppelin/contracts/access/Ownable.sol";
 import "@openzeppelin/contracts/token/ERC20/ERC20.sol";
 
@@ -48,7 +48,7 @@ contract MockGpsStatementVerifier is IGpsStatementVerifier {
 }
 
 contract ZeroXBridgeTest is Test {
-    ZeroXBridge public bridge;
+    ZeroXBridgeL1 public bridge;
     MockGpsStatementVerifier public mockVerifier;
     MockERC20 public token;
 
@@ -79,7 +79,7 @@ contract ZeroXBridgeTest is Test {
         token = new MockERC20("MockToken", "MTK");
 
         // Initialize bridge with mock verifier
-        bridge = new ZeroXBridge(address(mockVerifier), cairoVerifierId, owner, address(token));
+        bridge = new ZeroXBridgeL1(address(mockVerifier), cairoVerifierId, owner, address(token));
 
         // Setup approved relayer
         bridge.setRelayerStatus(relayer, true);
@@ -223,8 +223,8 @@ contract ZeroXBridgeTest is Test {
         try bridge.unlock_funds_with_proof(proofParams, proof, user1, amount, l2TxId, commitmentHash) {
             fail();
         } catch (bytes memory revertData) {
-            console2.log("Revert data:");
-            console2.logBytes(revertData);
+            console.log("Revert data:");
+            console.logBytes(revertData);
         }
 
         // Verify no funds were added
