@@ -1,0 +1,66 @@
+name: L2 contracts ci
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - "contracts/L2/**"
+  pull_request:
+    paths:
+      - "contracts/L2/**"
+
+env:
+  SCARB_VERSION: 2.9.2
+  STARKNET_FOUNDRY_VERSION: 0.36.0
+
+jobs:
+  l2-fmt:
+    runs-on: ubuntu-latest
+    name: Cairo formatting
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Setup Scarb
+        uses: software-mansion/setup-scarb@v1
+        with:
+          scarb-version: ${{ env.SCARB_VERSION }}
+
+      - name: Check Scarb Formatting
+        run: cd contracts/L2 && scarb fmt --check
+  
+  l2-test:
+    runs-on: ubuntu-latest
+    name: Cairo starknet foundry tests
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+      - name: Install universal sierra compiler
+        shell: bash
+        run: |
+          curl -L https://raw.githubusercontent.com/software-mansion/universal-sierra-compiler/master/scripts/install.sh | sh
+          echo "/root/.local/bin" >> ${GITHUB_PATH}
+      
+      - name: Check universal sierra compiler version
+        shell: bash
+        run: universal-sierra-compiler --version
+      
+      - name: Setup Scarb
+        uses: software-mansion/setup-scarb@v1
+        with:
+          scarb-version: ${{ env.SCARB_VERSION }}
+
+      - name: Setup Starknet Foundry
+        uses: foundry-rs/setup-snfoundry@v3
+        with:
+          starknet-foundry-version: ${{ env.STARKNET_FOUNDRY_VERSION }}
+      # Rust is required for the Starknet Foundry
+      - name: Set Up Stable Rust Toolchain
+        uses: actions-rs/toolchain@v1
+        with:
+          profile: minimal
+          toolchain: stable
+      
+      - name: Test contracts
+        run: cd contracts/L2 && snforge test
