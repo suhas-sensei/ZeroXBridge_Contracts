@@ -18,6 +18,7 @@ interface IGpsStatementVerifier {
 
 contract ZeroXBridgeL1 is Ownable {
     // Storage variables
+    address public admin;
     uint256 public tvl; // Total Value Locked in USD, with 18 decimals
     mapping(address => address) public priceFeeds; // Maps token address to Chainlink price feed address
     address[] public supportedTokens; // List of token addresses, including address(0) for ETH
@@ -46,13 +47,20 @@ contract ZeroXBridgeL1 is Ownable {
     event FundsUnlocked(address indexed user, uint256 amount, bytes32 commitmentHash);
     event RelayerStatusChanged(address indexed relayer, bool status);
     event FundsClaimed(address indexed user, uint256 amount);
-
-    constructor(address _gpsVerifier, uint256 _cairoVerifierId, address _initialOwner, address _claimableToken)
+    event WhitelistEvent(address indexed token);
+    event DewhitelistEvent(address indexed token);
+    
+    constructor(address _gpsVerifier, address _admin, uint256 _cairoVerifierId, address _initialOwner, address _claimableToken)
         Ownable(_initialOwner)
     {
         gpsVerifier = IGpsStatementVerifier(_gpsVerifier);
         cairoVerifierId = _cairoVerifierId;
         claimableToken = IERC20(_claimableToken);
+        admin = _admin;
+    }
+    modifier  onlyAdmin() {
+        require(msg.sender == admin, "Only admin can perform this action");
+    _;
     }
 
     function addSupportedToken(address token, address priceFeed, uint8 decimals) external {
@@ -181,5 +189,18 @@ contract ZeroXBridgeL1 is Ownable {
     // Function to update the Cairo verifier ID if needed
     function updateCairoVerifierId(uint256 _newVerifierId) external onlyOwner {
         cairoVerifierId = _newVerifierId;
+    }
+
+     function whitelistToken(address _token) public onlyAdmin {
+        whitelistedTokens[_token] = true;
+        emit WhitelistEvent(_token);
+    }
+
+    function dewhitelistToken(address _token) public onlyAdmin {
+        whitelistedTokens[_token] = false;
+        emit DewhitelistEvent(_token);
+    }
+    function isWhitelisted(address _token) public view returns (bool) {
+        return whitelistedTokens[_token];
     }
 }
