@@ -83,7 +83,7 @@ contract ZeroXBridgeL1Test is Test {
     event FundsClaimed(address indexed user, uint256 amount);
 
     function setUp() public {
-        admin = zeroXBridge.admin();
+        admin = assetPricer.admin();
         token1 = address(0x456);
         token2 = address(0x789);
         token = new MockERC20(18);
