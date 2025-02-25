@@ -180,6 +180,23 @@ contract ZeroXBridgeL1 is Ownable {
         emit FundsClaimed(msg.sender, amount);
     }
 
+
+    /**
+     * @dev Allows users to claim their full unlocked tokens
+     * @notice Users can only claim the full amount, partial claims are not allowed
+     */
+    function claim_tokens() external {
+        uint256 amount = claimableFunds[msg.sender];
+        require(amount > 0, "ZeroXBridge: No tokens to claim");
+        
+        // Reset claimable amount before transfer to prevent reentrancy
+        claimableFunds[msg.sender] = 0;
+
+        // Transfer full amount to user
+        claimableToken.safeTransfer(msg.sender, amount);
+        emit ClaimEvent(msg.sender, amount);
+    }
+
     // Function to update the GPS verifier address if needed
     function updateGpsVerifier(address _newVerifier) external onlyOwner {
         require(_newVerifier != address(0), "ZeroXBridge: Invalid address");
