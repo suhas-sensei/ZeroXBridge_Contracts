@@ -21,7 +21,7 @@ pub struct Proposal {
     pub voting_end_time: u64,
     pub vote_for: u256,
     pub vote_against: u256,
-    pub status: ProposalStatus, // Use ProposalStatus enum instead of u8
+    pub status: ProposalStatus,
 }
 
 #[starknet::interface]
