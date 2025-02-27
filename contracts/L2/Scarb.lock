@@ -6,6 +6,7 @@ name = "l2"
 version = "0.1.0"
 dependencies = [
  "openzeppelin_access",
+ "openzeppelin_introspection",
  "openzeppelin_token",
  "openzeppelin_upgrades",
  "openzeppelin_utils",

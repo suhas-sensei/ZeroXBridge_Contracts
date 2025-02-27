@@ -1,6 +1,7 @@
-use starknet::ContractAddress;
+use core::starknet::ContractAddress;
 
-#[derive(Drop, Serde, starknet::Store)]
+#[derive(Drop, Serde, starknet::Store, PartialEq)]
+
 #[allow(starknet::store_no_default_variant)]
 pub enum ProposalStatus {
     Pending,
@@ -12,117 +13,167 @@ pub enum ProposalStatus {
 
 #[derive(Drop, Serde, starknet::Store)]
 pub struct Proposal {
-    pub proposal_id: u256,
-    pub title: felt252,
+    pub id: u256,
     pub description: felt252,
-    pub creator_address: ContractAddress,
-    pub poll_duration: u256,
-    pub binding_duration: u256,
-    pub for_votes: u256,
-    pub against_votes: u256,
-    pub abstain_votes: u256,
-    pub status: ProposalStatus,
-}
-
-#[derive(starknet::Store, Drop, Serde, Copy)]
-pub struct Vote {
-    pub voter_address: ContractAddress,
-    pub vote_choice: u8 // 0: For, 1: Against, 2: Abstain
+    pub creator: ContractAddress,
+    pub creation_time: u64,
+    pub poll_end_time: u64,
+    pub voting_end_time: u64,
+    pub vote_for: u256,
+    pub vote_against: u256,
+    pub status: ProposalStatus, // Use ProposalStatus enum instead of u8
 }
 
 #[starknet::interface]
 pub trait IDAO<TContractState> {
+    fn vote_in_poll(ref self: TContractState, proposal_id: u256, support: bool);
+    fn get_proposal(self: @TContractState, proposal_id: u256) -> Proposal;
+    fn has_voted(self: @TContractState, proposal_id: u256, voter: ContractAddress) -> bool;
     fn create_proposal(
         ref self: TContractState,
         proposal_id: u256,
-        title: felt252,
         description: felt252,
-        poll_duration: u256,
-        binding_duration: u256,
+        poll_duration: u64,
+        voting_duration: u64,
     );
-    fn cast_vote(ref self: TContractState, proposal_id: u256, vote_choice: u8);
-    fn delegate_vote(ref self: TContractState, delegatee: ContractAddress);
 }
 
 #[starknet::contract]
 pub mod DAO {
-    use super::{Proposal, ProposalStatus, Vote, IDAO};
+    use starknet::storage::StorageMapWriteAccess;
+    use starknet::storage::StorageMapReadAccess;
     use starknet::ContractAddress;
     use starknet::get_caller_address;
-    use starknet::storage::{
-        Map, StorageMapReadAccess, StorageMapWriteAccess,
-    };
+    use starknet::get_block_timestamp;
+    use core::traits::Into;
+    use core::array::ArrayTrait;
+    use core::starknet::storage::{StoragePointerReadAccess, StoragePointerWriteAccess, Map};
+    use super::{Proposal, ProposalStatus};
+    use openzeppelin_token::erc20::interface::{IERC20Dispatcher, IERC20DispatcherTrait};
 
     #[storage]
     struct Storage {
+        xzb_token: ContractAddress,
         proposals: Map<u256, Proposal>,
         has_voted: Map<(u256, ContractAddress), bool>,
-        votes: Map<(u256, ContractAddress), Vote>,
-        delegated_votes: Map<ContractAddress, ContractAddress>,
+    }
+
+    #[event]
+    #[derive(Drop, starknet::Event)]
+    pub enum Event {
+        PollVoted: PollVoted,
+    }
+
+    #[derive(Drop, starknet::Event)]
+    pub struct PollVoted {
+        #[key]
+        pub proposal_id: u256,
+        #[key]
+        pub voter: ContractAddress,
+        pub support: bool,
+        pub vote_weight: u256,
+    }
+
+    #[constructor]
+    fn constructor(ref self: ContractState, xzb_token_address: ContractAddress) {
+        self.xzb_token.write(xzb_token_address);
     }
 
     #[abi(embed_v0)]
-    impl DAOImpl of IDAO<ContractState> {
+    impl DAOImpl of super::IDAO<ContractState> {
+        fn vote_in_poll(ref self: ContractState, proposal_id: u256, support: bool) {
+            let caller = get_caller_address();
+            let mut proposal = self._validate_proposal_exists(proposal_id);
+            assert(self._is_in_poll_phase(proposal_id), 'Not in poll phase');
+            assert(!self.has_voted.read((proposal_id, caller)), 'Already voted');
+            assert(proposal.id == proposal_id, 'Proposal does not exist');
+            assert(proposal.status == ProposalStatus::PollPassed, 'Not in poll phase');
+            let current_time = get_block_timestamp();
+            assert(current_time <= proposal.poll_end_time, 'Poll phase ended');
+            assert(!self.has_voted.read((proposal_id, caller)), 'Already voted');
+            let vote_weight = self._get_voter_weight(caller);
+            assert(vote_weight > 0, 'No voting power');
+            self._update_vote_counts(proposal_id, support, vote_weight);
+            if support {
+                proposal.vote_for += vote_weight;
+            } else {
+                proposal.vote_against += vote_weight;
+            }
+            self.proposals.write(proposal_id, proposal);
+            self.has_voted.write((proposal_id, caller), true);
+            self.emit(Event::PollVoted(PollVoted {
+                proposal_id: proposal_id,
+                voter: caller,
+                support: support,
+                vote_weight: vote_weight,
+            }));
+        }
+
+        fn get_proposal(self: @ContractState, proposal_id: u256) -> Proposal {
+            let proposal = self.proposals.read(proposal_id);
+            assert(proposal.id == proposal_id, 'Proposal does not exist');
+            proposal
+        }
+
+        fn has_voted(self: @ContractState, proposal_id: u256, voter: ContractAddress) -> bool {
+            self.has_voted.read((proposal_id, voter))
+        }
+
         fn create_proposal(
             ref self: ContractState,
             proposal_id: u256,
-            title: felt252,
             description: felt252,
-            poll_duration: u256,
-            binding_duration: u256,
+            poll_duration: u64,
+            voting_duration: u64,
         ) {
             let caller = get_caller_address();
+            let current_time = get_block_timestamp();
             let proposal = Proposal {
-                proposal_id,
-                title,
-                description,
-                creator_address: caller,
-                poll_duration,
-                binding_duration,
-                for_votes: 0,
-                against_votes: 0,
-                abstain_votes: 0,
+                id: proposal_id,
+                description: description,
+                creator: caller,
+                creation_time: current_time,
+                poll_end_time: current_time + poll_duration,
+                voting_end_time: current_time + poll_duration + voting_duration,
+                vote_for: 0.into(),
+                vote_against: 0.into(),
                 status: ProposalStatus::Pending,
             };
-
-            // Write the proposal to the proposals map
             self.proposals.write(proposal_id, proposal);
         }
+    }
 
-        fn cast_vote(ref self: ContractState, proposal_id: u256, vote_choice: u8) {
-            let caller = get_caller_address();
+    #[generate_trait]
+    impl InternalFunctions of InternalTrait {
+        fn _get_voter_weight(self: @ContractState, voter: ContractAddress) -> u256 {
+            let xzb_token = self.xzb_token.read();
+            let token_dispatcher = IERC20Dispatcher { contract_address: xzb_token };
+            let balance = token_dispatcher.balance_of(voter);
+            balance
+        }
 
-            // Check if the caller has already voted
-            let has_voted = self.has_voted.read((proposal_id, caller));
-            assert(!has_voted, 'Already voted');
+        fn _is_in_poll_phase(self: @ContractState, proposal_id: u256) -> bool {
+            let proposal = self.proposals.read(proposal_id);
+            let current_time = get_block_timestamp();
+            proposal.status == ProposalStatus::PollPassed && current_time <= proposal.poll_end_time
+        }
 
-            // Create a new vote
-            let vote = Vote { voter_address: caller, vote_choice };
+        fn _validate_proposal_exists(self: @ContractState, proposal_id: u256) -> Proposal {
+            let proposal = self.proposals.read(proposal_id);
+            assert(proposal.id == proposal_id, 'Proposal does not exist');
+            proposal
+        }
 
-            // Write the vote to the votes map
-            self.votes.write((proposal_id, caller), vote);
-
-            // Mark the caller as having voted
-            self.has_voted.write((proposal_id, caller), true);
-
-            // Update the proposal's vote counts
+        fn _update_vote_counts(
+            ref self: ContractState, proposal_id: u256, support: bool, vote_weight: u256,
+        ) {
             let mut proposal = self.proposals.read(proposal_id);
-            match vote_choice {
-                0 => proposal.for_votes += 1,
-                1 => proposal.against_votes += 1,
-                2 => proposal.abstain_votes += 1,
-                _ => panic!("Invalid vote choice"),
-            };
-
-            // Write the updated proposal back to storage
+            if support {
+                proposal.vote_for += vote_weight;
+            } else {
+                proposal.vote_against += vote_weight;
+            }
             self.proposals.write(proposal_id, proposal);
-        }
-
-        fn delegate_vote(ref self: ContractState, delegatee: ContractAddress) {
-            let caller = get_caller_address();
-
-            // Write the delegation to the delegated_votes map
-            self.delegated_votes.write(caller, delegatee);
         }
     }
 }
