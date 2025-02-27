@@ -1,7 +1,7 @@
 use starknet::ContractAddress;
 
 #[starknet::interface]
-trait IDynamicRate<TContractState> {
+pub trait IDynamicRate<TContractState> {
     fn get_dynamic_rate(self: @TContractState, tvl: u256) -> u256;
     fn get_current_xzb_supply(self: @TContractState) -> u256;
     fn set_min_rate(ref self: TContractState, rate: u256);
@@ -15,7 +15,7 @@ trait IL1Oracle<TContractState> {
 }
 
 #[starknet::contract]
-mod DynamicRate {
+pub mod DynamicRate {
     use super::{ContractAddress, IL1Oracle, IL1OracleDispatcher, IL1OracleDispatcherTrait};
     use core::starknet::storage::{StoragePointerWriteAccess, StoragePointerReadAccess};
     use starknet::get_caller_address;
@@ -34,7 +34,7 @@ mod DynamicRate {
 
     #[event]
     #[derive(Drop, starknet::Event)]
-    enum Event {
+    pub enum Event {
         RateUpdated: RateUpdated,
         OracleUpdated: OracleUpdated,
         RateLimitsUpdated: RateLimitsUpdated,
