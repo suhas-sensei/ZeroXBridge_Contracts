@@ -1,6 +1,7 @@
 use starknet::ContractAddress;
 
-#[derive(Drop, Serde)]
+#[derive(Drop, Serde, starknet::Store)]
+#[allow(starknet::store_no_default_variant)]
 pub enum ProposalStatus {
     Pending,
     PollPassed,
@@ -9,7 +10,7 @@ pub enum ProposalStatus {
     Rejected,
 }
 
-#[derive(Drop, Serde)]
+#[derive(Drop, Serde, starknet::Store)]
 pub struct Proposal {
     pub proposal_id: u256,
     pub title: felt252,
@@ -44,12 +45,12 @@ pub trait IDAO<TContractState> {
 }
 
 #[starknet::contract]
-mod DAO {
+pub mod DAO {
     use super::{Proposal, ProposalStatus, Vote, IDAO};
     use starknet::ContractAddress;
     use starknet::get_caller_address;
     use starknet::storage::{
-        Map, StoragePathEntry, StoragePointerReadAccess, StoragePointerWriteAccess,
+        Map, StorageMapReadAccess, StorageMapWriteAccess,
     };
 
     #[storage]
@@ -85,27 +86,27 @@ mod DAO {
             };
 
             // Write the proposal to the proposals map
-            self.proposals.entry(proposal_id).write(proposal);
+            self.proposals.write(proposal_id, proposal);
         }
 
         fn cast_vote(ref self: ContractState, proposal_id: u256, vote_choice: u8) {
             let caller = get_caller_address();
 
             // Check if the caller has already voted
-            let has_voted = self.has_voted.entry((proposal_id, caller)).read();
+            let has_voted = self.has_voted.read((proposal_id, caller));
             assert(!has_voted, 'Already voted');
 
             // Create a new vote
             let vote = Vote { voter_address: caller, vote_choice };
 
             // Write the vote to the votes map
-            self.votes.entry((proposal_id, caller)).write(vote);
+            self.votes.write((proposal_id, caller), vote);
 
             // Mark the caller as having voted
-            self.has_voted.entry((proposal_id, caller)).write(true);
+            self.has_voted.write((proposal_id, caller), true);
 
             // Update the proposal's vote counts
-            let mut proposal = self.proposals.entry(proposal_id).read();
+            let mut proposal = self.proposals.read(proposal_id);
             match vote_choice {
                 0 => proposal.for_votes += 1,
                 1 => proposal.against_votes += 1,
@@ -114,14 +115,14 @@ mod DAO {
             };
 
             // Write the updated proposal back to storage
-            self.proposals.entry(proposal_id).write(proposal);
+            self.proposals.write(proposal_id, proposal);
         }
 
         fn delegate_vote(ref self: ContractState, delegatee: ContractAddress) {
             let caller = get_caller_address();
 
             // Write the delegation to the delegated_votes map
-            self.delegated_votes.entry(caller).write(delegatee);
+            self.delegated_votes.write(caller, delegatee);
         }
     }
 }
