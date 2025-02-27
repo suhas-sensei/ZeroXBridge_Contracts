@@ -72,6 +72,10 @@ contract ZeroXBridgeL1Test is Test {
     uint256[] public proofParams;
     uint256[] public proof;
 
+    event WhitelistEvent(address indexed token);
+
+    event DewhitelistEvent(address indexed token);
+
     event FundsUnlocked(address indexed user, uint256 amount, bytes32 commitmentHash);
 
     event RelayerStatusChanged(address indexed relayer, bool status);
@@ -79,6 +83,9 @@ contract ZeroXBridgeL1Test is Test {
     event FundsClaimed(address indexed user, uint256 amount);
 
     function setUp() public {
+        admin = assetPricer.admin();
+        token1 = address(0x456);
+        token2 = address(0x789);
         token = new MockERC20(18);
         vm.startPrank(owner);
         // Deploy the AssetPricer contract
@@ -257,5 +264,61 @@ contract ZeroXBridgeL1Test is Test {
 
         // TVL should be 0
         assertEq(newAssetPricer.tvl(), 0, "TVL should be zero with no supported tokens");
+    }
+
+      function testWhitelistToken() public {
+        // Whitelist token1
+        vm.prank(admin);
+
+        vm.expectEmit(true, true, false, false);
+        emit WhitelistEvent(token1);
+        
+        assetPricer.whitelistToken(token1); 
+
+        // Check if token1 is whitelisted
+        assertTrue(assetPricer.isWhitelisted(token1), "Token1 should be whitelisted");
+
+        // Check the storage variable directly
+        assertTrue(assetPricer.whitelistedTokens(token1), "Token should be whitelisted in storage");
+    }
+
+    function testDewhitelistToken() public {
+        // Whitelist token1 first
+        vm.prank(admin);
+        assetPricer.whitelistToken(token1);
+
+        // Now dewhitelist token1
+        vm.prank(admin);
+        
+        vm.expectEmit(true, true, false, false);
+        emit DewhitelistEvent(token1);
+
+        assetPricer.dewhitelistToken(token1);
+
+        // Check if token1 is dewhitelisted
+        assertFalse(assetPricer.isWhitelisted(token1), "Token1 should be dewhitelisted");
+        assertFalse(assetPricer.whitelistedTokens(token1), "Token1 should be dewhitelisted in storage");
+    }
+
+    function testOnlyAdminCanWhitelist() public {
+        address nonAdmin = address(0x999);
+
+        vm.startPrank(nonAdmin);
+        vm.expectRevert("Only admin can perform this action");
+        assetPricer.whitelistToken(token1);
+        vm.stopPrank();
+    }
+
+    function testOnlyAdminCanDewhitelist() public {
+        // Whitelist token1 first
+        vm.prank(admin);
+        assetPricer.whitelistToken(token1);
+
+        address nonAdmin = address(0x999);
+
+        vm.startPrank(nonAdmin);
+        vm.expectRevert("Only admin can perform this action");
+        assetPricer.dewhitelistToken(token1);
+        vm.stopPrank();
     }
 }
