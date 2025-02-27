@@ -248,6 +248,56 @@ contract ZeroXBridgeL1Test is Test {
         assetPricer.update_asset_pricing();
     }
 
+    function testClaimTokens() public {
+        // Setup test data
+        uint256 amount = 100 ether;
+        address user = address(0x123);
+        
+        // Simulate funds being unlocked
+        vm.prank(relayer);
+        assetPricer.unlock_funds_with_proof(proofParams, proof, user, amount, l2TxId, commitmentHash);
+
+        // Expect ClaimEvent to be emitted
+        vm.expectEmit(true, true, false, true);
+        emit ClaimEvent(user, amount);
+
+        // Claim tokens
+        vm.prank(user);
+        assetPricer.claim_tokens();
+
+        // Verify token transfer
+        assertEq(token.balanceOf(user), amount);
+        assertEq(assetPricer.claimableFunds(user), 0);
+    }
+
+    function testClaimTokensNoFunds() public {
+        address user = address(0x123);
+        
+        // Attempt to claim with no funds
+        vm.prank(user);
+        vm.expectRevert("ZeroXBridge: No tokens to claim");
+        assetPricer.claim_tokens();
+    }
+
+    function testPartialClaimNotAllowed() public {
+        // Setup test data
+        uint256 amount = 100 ether;
+        address user = address(0x123);
+        
+        // Simulate funds being unlocked
+        vm.prank(relayer);
+        assetPricer.unlock_funds_with_proof(proofParams, proof, user, amount, l2TxId, commitmentHash);
+
+        // Attempt partial claim
+        vm.prank(user);
+        vm.expectRevert("ZeroXBridge: No tokens to claim");
+        assetPricer.claim_tokens();
+
+        // Verify full amount remains claimable
+        assertEq(assetPricer.claimableFunds(user), amount);
+    }
+    
+
     /**
      * Test Case 5: Empty Supported Tokens - TVL is zero when no tokens are supported
      */
