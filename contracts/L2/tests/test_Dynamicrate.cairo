@@ -40,16 +40,6 @@ fn deploy_dynamic_rate() -> ContractAddress {
 }
 
 #[test]
-fn test_constructor() {
-    let contract_address = deploy_dynamic_rate();
-    let dynamic_rate = IDynamicRateDispatcher { contract_address };
-
-    // Test that the XZB supply is initialized to 0
-    let supply = dynamic_rate.get_current_xzb_supply();
-    assert(supply == 0, 'Initial supply should be 0');
-}
-
-#[test]
 #[should_panic(expected: 'Only owner')]
 fn test_only_owner_can_set_min_rate() {
     let contract_address = deploy_dynamic_rate();

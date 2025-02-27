@@ -7,6 +7,7 @@ pub trait IDynamicRate<TContractState> {
     fn set_min_rate(ref self: TContractState, rate: u256);
     fn set_max_rate(ref self: TContractState, rate: u256);
     fn set_oracle(ref self: TContractState, oracle: ContractAddress);
+    fn set_xzb_token(ref self: TContractState, xzb_token: ContractAddress);
 }
 
 #[starknet::interface]
@@ -14,9 +15,16 @@ trait IL1Oracle<TContractState> {
     fn get_total_tvl(self: @TContractState) -> u256;
 }
 
+#[starknet::interface]
+trait IERC20<TContractState> {
+    fn total_supply(self: @TContractState) -> u256;
+}
+
 #[starknet::contract]
 pub mod DynamicRate {
+    use super::IDynamicRate;
     use super::{ContractAddress, IL1Oracle, IL1OracleDispatcher, IL1OracleDispatcherTrait};
+    use super::{IERC20, IERC20Dispatcher, IERC20DispatcherTrait};
     use core::starknet::storage::{StoragePointerWriteAccess, StoragePointerReadAccess};
     use starknet::get_caller_address;
 
@@ -29,7 +37,8 @@ pub mod DynamicRate {
         oracle: ContractAddress,
         min_rate: u256,
         max_rate: u256,
-        current_xzb_supply: u256,
+        // current_xzb_supply: u256,
+        xzb_token: ContractAddress,
     }
 
     #[event]
@@ -37,6 +46,7 @@ pub mod DynamicRate {
     pub enum Event {
         RateUpdated: RateUpdated,
         OracleUpdated: OracleUpdated,
+        XZBTokenUpdated: XZBTokenUpdated,
         RateLimitsUpdated: RateLimitsUpdated,
     }
 
@@ -51,6 +61,12 @@ pub mod DynamicRate {
     struct OracleUpdated {
         #[key]
         oracle: ContractAddress,
+    }
+
+    #[derive(Drop, starknet::Event)]
+    struct XZBTokenUpdated {
+        #[key]
+        xzb_token: ContractAddress,
     }
 
     #[derive(Drop, starknet::Event)]
@@ -71,7 +87,6 @@ pub mod DynamicRate {
         self.oracle.write(oracle);
         self.min_rate.write(min_rate);
         self.max_rate.write(max_rate);
-        self.current_xzb_supply.write(0);
     }
 
     #[abi(embed_v0)]
@@ -86,7 +101,7 @@ pub mod DynamicRate {
             assert(new_tvl > 0, 'TVL cannot be zero');
 
             // Get current xZB supply
-            let xzb_supply = self.current_xzb_supply.read();
+            let xzb_supply = self.get_current_xzb_supply();
 
             // Calculate new protocol rate
             // new_rate = (current_xZB_supply / new_TLV) * PRECISION
@@ -109,7 +124,13 @@ pub mod DynamicRate {
         }
 
         fn get_current_xzb_supply(self: @ContractState) -> u256 {
-            self.current_xzb_supply.read()
+            let xzb_token = self.xzb_token.read();
+
+            // Create dispatcher to call the ERC20 contract
+            let xzb_dispatcher = IERC20Dispatcher { contract_address: xzb_token };
+
+            // Get total supply from the token contract
+            xzb_dispatcher.total_supply()
         }
 
         fn set_min_rate(ref self: ContractState, rate: u256) {
@@ -140,6 +161,12 @@ pub mod DynamicRate {
             self.only_owner();
             self.oracle.write(oracle);
             self.emit(Event::OracleUpdated(OracleUpdated { oracle }));
+        }
+
+        fn set_xzb_token(ref self: ContractState, xzb_token: ContractAddress) {
+            self.only_owner();
+            self.xzb_token.write(xzb_token);
+            self.emit(Event::XZBTokenUpdated(XZBTokenUpdated { xzb_token }));
         }
     }
 
