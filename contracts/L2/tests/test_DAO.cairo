@@ -1,8 +1,8 @@
 use openzeppelin_utils::serde::SerializedAppend;
 use snforge_std::DeclareResultTrait;
 use starknet::{ContractAddress, contract_address_const};
-use snforge_std::{cheat_caller_address, declare, CheatSpan, ContractClassTrait};
-use l2::DAO::{IDAODispatcher, IDAODispatcherTrait};
+use snforge_std::{cheat_caller_address, cheat_block_timestamp, declare, CheatSpan, ContractClassTrait};
+use l2::DAO::{IDAODispatcher, IDAODispatcherTrait, ProposalStatus};
 
 fn owner() -> ContractAddress {
     contract_address_const::<'owner'>()
@@ -128,4 +128,47 @@ fn test_vote_with_zero_token_balance_should_fail() {
     let dao_dispatcher = IDAODispatcher { contract_address: dao };
     cheat_caller_address(dao, charlie, CheatSpan::TargetCalls(1));
     dao_dispatcher.vote_in_poll(1, true);
+}
+
+#[test]
+fn test_start_poll() {
+    let owner = owner();
+    let xzb_token = contract_address_const::<'xzb_token'>();
+    let dao = deploy_dao(xzb_token);
+    create_proposal(dao, 1, 'Proposal 1'.into(), 1000, 2000);
+
+    let dao_dispatcher = IDAODispatcher { contract_address: dao };
+    cheat_caller_address(dao, owner, CheatSpan::TargetCalls(1));
+    dao_dispatcher.start_poll(1);
+
+    let proposal = dao_dispatcher.get_proposal(1);
+    assert(proposal.status == ProposalStatus::PollActive, 'Proposal status mismatch');
+}
+
+#[test]
+#[should_panic(expected: 'Poll phase already started')]
+fn test_start_poll_twice_should_fail() {
+    let owner = owner();
+    let xzb_token = contract_address_const::<'xzb_token'>();
+    let dao = deploy_dao(xzb_token);
+    create_proposal(dao, 1, 'Proposal 1'.into(), 1000, 2000);
+
+    let dao_dispatcher = IDAODispatcher { contract_address: dao };
+    cheat_caller_address(dao, owner, CheatSpan::TargetCalls(1));
+    dao_dispatcher.start_poll(1);
+    dao_dispatcher.start_poll(1);
+}
+
+#[test]
+#[should_panic(expected: 'Poll phase ended')]
+fn test_start_poll_after_poll_end_should_fail() {
+    let owner = owner();
+    let xzb_token = contract_address_const::<'xzb_token'>();
+    let dao = deploy_dao(xzb_token);
+    create_proposal(dao, 1, 'Proposal 1'.into(), 1, 2000); // Short poll duration
+
+    let dao_dispatcher = IDAODispatcher { contract_address: dao };
+    cheat_caller_address(dao, owner, CheatSpan::TargetCalls(1));
+    cheat_block_timestamp(dao, 1001, CheatSpan::TargetCalls(1));
+    dao_dispatcher.start_poll(1);
 }
