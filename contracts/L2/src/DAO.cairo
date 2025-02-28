@@ -35,6 +35,7 @@ pub trait IDAO<TContractState> {
         poll_duration: u64,
         voting_duration: u64,
     );
+    fn tally_poll_votes(ref self: TContractState, proposal_id: u256);
 }
 
 #[starknet::contract]
@@ -50,6 +51,11 @@ pub mod DAO {
     use super::{Proposal, ProposalStatus};
     use openzeppelin_token::erc20::interface::{IERC20Dispatcher, IERC20DispatcherTrait};
 
+    pub const PollActive: u8 = 0;
+    pub const PollPassed: u8 = 2;
+    pub const PollDefeated: u8 = 4;
+    use core::panic_with_felt252;
+
     #[storage]
     struct Storage {
         xzb_token: ContractAddress,
@@ -62,6 +68,7 @@ pub mod DAO {
     #[derive(Drop, starknet::Event)]
     pub enum Event {
         PollVoted: PollVoted,
+        PollResultUpdated: PollResultUpdated,
     }
 
     #[derive(Drop, starknet::Event)]
@@ -72,6 +79,15 @@ pub mod DAO {
         pub voter: ContractAddress,
         pub support: bool,
         pub vote_weight: u256,
+    }
+
+    #[derive(Drop, starknet::Event)]
+    pub struct PollResultUpdated {
+        #[key]
+        pub proposal_id: u256,
+        pub total_for: u256,
+        pub total_against: u256,
+        pub new_status: felt252,
     }
 
     #[constructor]
@@ -146,6 +162,54 @@ pub mod DAO {
             };
             self.proposals.write(proposal_id, proposal);
             self.proposal_exists.write(proposal_id, true)
+        }
+
+        fn tally_poll_votes(ref self: ContractState, proposal_id: u256) {
+            let mut proposal = self._validate_proposal_exists(proposal_id);
+
+            if proposal.state != PollActive {
+                panic_with_felt252('Not in poll phase');
+            }
+
+            let total_for = proposal.vote_for;
+            let total_against = proposal.vote_against;
+
+            let threshold: u256 = 100.into();
+
+            if total_for >= threshold {
+                proposal.state = PollPassed;
+                self.proposals.write(proposal_id, proposal);
+
+                // Emit the PollResultUpdated event
+                self
+                    .emit(
+                        Event::PollResultUpdated(
+                            PollResultUpdated {
+                                proposal_id: proposal_id,
+                                total_for: total_for,
+                                total_against: total_against,
+                                new_status: 'PollPassed'.into(),
+                            },
+                        ),
+                    );
+            }
+            if total_against >= threshold {
+                proposal.state = PollDefeated;
+                self.proposals.write(proposal_id, proposal);
+
+                // Emit the PollResultUpdated event
+                self
+                    .emit(
+                        Event::PollResultUpdated(
+                            PollResultUpdated {
+                                proposal_id: proposal_id,
+                                total_for: total_for,
+                                total_against: total_against,
+                                new_status: 'PollDefeated'.into(),
+                            },
+                        ),
+                    );
+            }
         }
     }
 

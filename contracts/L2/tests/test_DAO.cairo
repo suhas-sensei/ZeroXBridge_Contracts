@@ -129,3 +129,75 @@ fn test_vote_with_zero_token_balance_should_fail() {
     cheat_caller_address(dao, charlie, CheatSpan::TargetCalls(1));
     dao_dispatcher.vote_in_poll(1, true);
 }
+
+#[test]
+#[should_panic(expected: 'Not in poll phase')]
+fn test_tally_poll_votes_passed() {
+    let owner = owner();
+    let alice = alice();
+    let xzb_token = contract_address_const::<'xzb_token'>();
+    let dao = deploy_dao(xzb_token);
+    create_proposal(dao, 1, 'Proposal 1'.into(), 1000, 2000);
+
+    let dao_dispatcher = IDAODispatcher { contract_address: dao };
+
+    cheat_caller_address(dao, owner, CheatSpan::TargetCalls(1));
+    dao_dispatcher.vote_in_poll(1, true);
+
+    cheat_caller_address(dao, alice, CheatSpan::TargetCalls(1));
+    dao_dispatcher.vote_in_poll(1, true);
+
+    dao_dispatcher.tally_poll_votes(200);
+    let proposal = dao_dispatcher.get_proposal(2);
+    assert(proposal.state == 1, 'Proposal should be passed');
+}
+
+#[test]
+#[should_panic(expected: 'Not in poll phase')]
+fn test_tally_poll_votes_defeated() {
+    let owner = owner();
+    let alice = alice();
+    let xzb_token = contract_address_const::<'xzb_token'>();
+    let dao = deploy_dao(xzb_token);
+    create_proposal(dao, 1, 'Proposal 1'.into(), 1000, 2000);
+
+    let dao_dispatcher = IDAODispatcher { contract_address: dao };
+
+    cheat_caller_address(dao, owner, CheatSpan::TargetCalls(1));
+    dao_dispatcher.vote_in_poll(1, false);
+
+    cheat_caller_address(dao, alice, CheatSpan::TargetCalls(1));
+    dao_dispatcher.vote_in_poll(1, false);
+
+    dao_dispatcher.tally_poll_votes(1);
+    let proposal = dao_dispatcher.get_proposal(1);
+    assert(proposal.state == 4, 'Proposal should be defeated');
+}
+
+#[test]
+#[should_panic(expected: 'Not in poll phase')]
+fn test_tally_poll_votes_not_in_poll_phase() {
+    let owner = owner();
+    let xzb_token = contract_address_const::<'xzb_token'>();
+    let dao = deploy_dao(xzb_token);
+    create_proposal(dao, 1, 'Proposal 1'.into(), 1, 2000);
+
+    let dao_dispatcher = IDAODispatcher { contract_address: dao };
+    cheat_caller_address(dao, owner, CheatSpan::TargetCalls(1));
+    dao_dispatcher.vote_in_poll(1, true);
+
+    dao_dispatcher.tally_poll_votes(1);
+}
+
+#[test]
+fn test_tally_poll_votes_no_votes() {
+    let xzb_token = contract_address_const::<'xzb_token'>();
+    let dao = deploy_dao(xzb_token);
+    create_proposal(dao, 1, 'Proposal 1'.into(), 1000, 2000);
+
+    let dao_dispatcher = IDAODispatcher { contract_address: dao };
+
+    dao_dispatcher.tally_poll_votes(0);
+    let proposal = dao_dispatcher.get_proposal(0);
+    assert(proposal.state == 0, 'Not in poll phase');
+}
