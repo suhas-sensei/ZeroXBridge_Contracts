@@ -1,5 +1,10 @@
 use l2::xZBERC20::{
     IBurnableDispatcher, IBurnableDispatcherTrait, IMintableDispatcher, IMintableDispatcherTrait,
+    MINTER_ROLE,
+};
+
+use openzeppelin_access::accesscontrol::interface::{
+    IAccessControlDispatcher, IAccessControlDispatcherTrait,
 };
 use openzeppelin_token::erc20::erc20::ERC20Component;
 use openzeppelin_token::erc20::interface::{IERC20Dispatcher, IERC20DispatcherTrait};
@@ -27,9 +32,18 @@ fn carl() -> ContractAddress {
     contract_address_const::<'carl'>()
 }
 
+fn minter() -> ContractAddress {
+    contract_address_const::<'minter'>()
+}
+
 fn mint(contract_address: ContractAddress, recipient: ContractAddress, amount: u256) {
     cheat_caller_address(contract_address, owner(), CheatSpan::TargetCalls(1));
     IMintableDispatcher { contract_address }.mint(recipient, amount);
+}
+
+fn grant_mint_role(contract_address: ContractAddress, user: ContractAddress) {
+    cheat_caller_address(contract_address, owner(), CheatSpan::TargetCalls(1));
+    IAccessControlDispatcher { contract_address }.grant_role(MINTER_ROLE, user);
 }
 
 fn deploy_erc20() -> ContractAddress {
@@ -38,32 +52,80 @@ fn deploy_erc20() -> ContractAddress {
     let mut calldata = array![];
     calldata.append_serde(owner);
     let (contract_address, _) = contract_class.deploy(@calldata).unwrap();
+
+    grant_mint_role(contract_address, minter());
     contract_address
+}
+
+#[test]
+#[should_panic(expected: 'Caller is missing role')]
+fn test_an_user_cant_grant_another_user() {
+    let alice = alice();
+    let bob = bob();
+    let contract_address = deploy_erc20();
+    cheat_caller_address(contract_address, alice, CheatSpan::TargetCalls(1));
+    IAccessControlDispatcher { contract_address }.grant_role(MINTER_ROLE, bob);
+}
+
+#[test]
+#[should_panic(expected: 'Caller is missing role')]
+fn test_a_granted_user_cant_grant_another_user() {
+    let minter = minter();
+    let alice = alice();
+    let contract_address = deploy_erc20();
+    cheat_caller_address(contract_address, minter, CheatSpan::TargetCalls(1));
+    IAccessControlDispatcher { contract_address }.grant_role(MINTER_ROLE, alice);
+}
+
+#[test]
+#[should_panic(expected: 'Caller is missing role')]
+fn test_a_granted_user_cant_revoke_another_granted_user() {
+    let owner = owner();
+    let minter = minter();
+    let alice = alice();
+    let contract_address = deploy_erc20();
+
+    cheat_caller_address(contract_address, owner, CheatSpan::TargetCalls(1));
+    IAccessControlDispatcher { contract_address }.grant_role(MINTER_ROLE, alice);
+
+    cheat_caller_address(contract_address, minter, CheatSpan::TargetCalls(1));
+    IAccessControlDispatcher { contract_address }.revoke_role(MINTER_ROLE, alice);
+}
+
+#[test]
+fn test_a_granted_user_can_renounce_role() {
+    let minter = minter();
+    let contract_address = deploy_erc20();
+    cheat_caller_address(contract_address, minter, CheatSpan::TargetCalls(1));
+    IAccessControlDispatcher { contract_address }.renounce_role(MINTER_ROLE, minter);
+    let can_mint = IAccessControlDispatcher { contract_address }.has_role(MINTER_ROLE, minter);
+    assert(!can_mint, 'User should not have the role');
 }
 
 #[test]
 fn test_owner_can_mint() {
     let owner = owner();
-    let alice = contract_address_const::<'alice'>();
+    let minter = minter();
+    let alice = alice();
     let amount = 1000;
     let contract_address = deploy_erc20();
     let erc20 = IERC20Dispatcher { contract_address };
     let previous_balance = erc20.balance_of(owner);
-    cheat_caller_address(contract_address, owner, CheatSpan::TargetCalls(1));
+    cheat_caller_address(contract_address, minter, CheatSpan::TargetCalls(1));
     IMintableDispatcher { contract_address }.mint(owner, amount);
     let balance = erc20.balance_of(owner);
     assert(balance - previous_balance == amount, 'Wrong amount after mint');
 
     let previous_balance = erc20.balance_of(alice);
-    cheat_caller_address(contract_address, owner, CheatSpan::TargetCalls(1));
+    cheat_caller_address(contract_address, minter, CheatSpan::TargetCalls(1));
     IMintableDispatcher { contract_address }.mint(alice, amount);
     let balance = erc20.balance_of(alice);
     assert(balance - previous_balance == amount, 'Wrong amount after mint');
 }
 
 #[test]
-#[should_panic(expected: 'Caller is not the owner')]
-fn test_only_owner_can_mint() {
+#[should_panic(expected: 'Caller is missing role')]
+fn test_only_granted_user_can_mint() {
     let alice = alice();
     let contract_address = deploy_erc20();
 
@@ -83,6 +145,40 @@ fn test_supply_is_updated_after_mint() {
     assert(supply - previous_supply == amount, 'Wrong supply after mint');
 }
 
+#[test]
+fn test_a_granted_user_can_mint() {
+    let owner = owner();
+    let alice = alice();
+    let bob = bob();
+    let amount = 1000;
+    let contract_address = deploy_erc20();
+    let erc20 = IERC20Dispatcher { contract_address };
+
+    cheat_caller_address(contract_address, owner, CheatSpan::TargetCalls(1));
+    IAccessControlDispatcher { contract_address }.grant_role(MINTER_ROLE, bob);
+
+    let previous_balance = erc20.balance_of(alice);
+    cheat_caller_address(contract_address, bob, CheatSpan::TargetCalls(1));
+    IMintableDispatcher { contract_address }.mint(alice, amount);
+    let balance = erc20.balance_of(alice);
+    assert(balance - previous_balance == amount, 'Wrong amount after mint');
+}
+
+#[test]
+#[should_panic(expected: 'Caller is missing role')]
+fn test_a_revoked_user_can_not_mint() {
+    let owner = owner();
+    let minter = minter();
+    let alice = alice();
+    let amount = 1000;
+    let contract_address = deploy_erc20();
+
+    cheat_caller_address(contract_address, owner, CheatSpan::TargetCalls(1));
+    IAccessControlDispatcher { contract_address }.revoke_role(MINTER_ROLE, minter);
+
+    cheat_caller_address(contract_address, minter, CheatSpan::TargetCalls(1));
+    IMintableDispatcher { contract_address }.mint(alice, amount);
+}
 
 #[test]
 fn test_user_can_burn() {
