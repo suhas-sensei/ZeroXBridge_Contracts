@@ -4,6 +4,7 @@ use starknet::{ContractAddress, contract_address_const};
 use snforge_std::{
     cheat_caller_address, cheat_block_timestamp, declare, CheatSpan, ContractClassTrait,
 };
+use snforge_std::{cheat_caller_address, declare, CheatSpan, ContractClassTrait};
 use l2::DAO::{IDAODispatcher, IDAODispatcherTrait, ProposalStatus};
 
 fn owner() -> ContractAddress {
@@ -118,7 +119,6 @@ fn test_double_vote_by_same_voter_should_fail() {
     dao_dispatcher.vote_in_poll(1, false);
 }
 
-
 #[test]
 #[should_panic(expected: 'Not in poll phase')]
 fn test_vote_with_zero_token_balance_should_fail() {
@@ -173,4 +173,77 @@ fn test_start_poll_after_poll_end_should_fail() {
     cheat_caller_address(dao, owner, CheatSpan::TargetCalls(1));
     cheat_block_timestamp(dao, 1001, CheatSpan::TargetCalls(1));
     dao_dispatcher.start_poll(1);
+}
+
+#[test]
+#[should_panic(expected: 'Not in poll phase')]
+fn test_tally_poll_votes_defeated() {
+    let owner = owner();
+    let alice = alice();
+    
+    let xzb_token = contract_address_const::<'xzb_token'>();
+    let dao = deploy_dao(xzb_token);
+    create_proposal(dao, 1, 'Proposal 1'.into(), 1000, 2000);
+
+    let dao_dispatcher = IDAODispatcher { contract_address: dao };
+    cheat_caller_address(dao, owner, CheatSpan::TargetCalls(1));
+    dao_dispatcher.vote_in_poll(1, true);
+
+    cheat_caller_address(dao, alice, CheatSpan::TargetCalls(1));
+    dao_dispatcher.vote_in_poll(1, true);
+
+    dao_dispatcher.tally_poll_votes(200);
+    let proposal = dao_dispatcher.get_proposal(2);
+    assert(proposal.status == ProposalStatus::PollPassed, 'Proposal should be passed');
+}
+
+#[test]
+#[should_panic(expected: 'Not in poll phase')]
+fn test_tally_poll_votes_defeated() {
+    let owner = owner();
+    let alice = alice();
+    let xzb_token = contract_address_const::<'xzb_token'>();
+    let dao = deploy_dao(xzb_token);
+    create_proposal(dao, 1, 'Proposal 1'.into(), 1000, 2000);
+
+    let dao_dispatcher = IDAODispatcher { contract_address: dao };
+    
+    cheat_caller_address(dao, owner, CheatSpan::TargetCalls(1));
+    dao_dispatcher.vote_in_poll(1, false);
+
+    cheat_caller_address(dao, alice, CheatSpan::TargetCalls(1));
+    dao_dispatcher.vote_in_poll(1, false);
+
+    dao_dispatcher.tally_poll_votes(1);
+    let proposal = dao_dispatcher.get_proposal(1);
+    assert(proposal.status == ProposalStatus::PollFailed, 'Proposal should be defeated');
+}
+
+#[test]
+#[should_panic(expected: 'Not in poll phase')]
+fn test_tally_poll_votes_not_in_poll_phase() {
+    let owner = owner();
+    let xzb_token = contract_address_const::<'xzb_token'>();
+    let dao = deploy_dao(xzb_token);
+    create_proposal(dao, 1, 'Proposal 1'.into(), 1, 2000);
+
+    let dao_dispatcher = IDAODispatcher { contract_address: dao };
+    cheat_caller_address(dao, owner, CheatSpan::TargetCalls(1));
+    dao_dispatcher.vote_in_poll(1, true);
+
+    dao_dispatcher.tally_poll_votes(1);
+}
+
+#[test]
+#[should_panic(expected: 'Not in poll phase')]
+fn test_tally_poll_votes_no_votes() {
+    let xzb_token = contract_address_const::<'xzb_token'>();
+    let dao = deploy_dao(xzb_token);
+    create_proposal(dao, 1, 'Proposal 1'.into(), 1000, 2000);
+
+    let dao_dispatcher = IDAODispatcher { contract_address: dao };
+
+    dao_dispatcher.tally_poll_votes(1);
+    let proposal = dao_dispatcher.get_proposal(1);
+    assert(proposal.status == ProposalStatus::Pending, 'Not in poll phase');
 }

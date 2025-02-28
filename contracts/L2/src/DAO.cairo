@@ -1,17 +1,18 @@
 use core::starknet::ContractAddress;
 
-#[derive(Drop, Serde, starknet::Store, PartialEq)]
+#[derive(Drop, Serde, Copy, starknet::Store, PartialEq)]
 #[allow(starknet::store_no_default_variant)]
 pub enum ProposalStatus {
     Pending,
     PollActive,
     PollPassed,
+    PollFailed,
     Approved,
     Executed,
     Rejected,
 }
 
-#[derive(Drop, Serde, starknet::Store)]
+#[derive(Drop, Serde, Copy, starknet::Store)]
 pub struct Proposal {
     pub id: u256,
     pub description: felt252,
@@ -37,6 +38,7 @@ pub trait IDAO<TContractState> {
         voting_duration: u64,
     );
     fn start_poll(ref self: TContractState, proposal_id: u256);
+    fn tally_poll_votes(ref self: TContractState, proposal_id: u256);
 }
 
 #[starknet::contract]
@@ -52,6 +54,7 @@ pub mod DAO {
     use core::starknet::storage::{StoragePointerReadAccess, StoragePointerWriteAccess, Map};
     use super::{Proposal, ProposalStatus};
     use openzeppelin_token::erc20::interface::{IERC20Dispatcher, IERC20DispatcherTrait};
+    use core::panic_with_felt252;
 
     #[storage]
     struct Storage {
@@ -66,6 +69,7 @@ pub mod DAO {
     pub enum Event {
         PollVoted: PollVoted,
         PollStarted: PollStarted,
+        PollResultUpdated: PollResultUpdated,
     }
 
     #[derive(Drop, starknet::Event)]
@@ -83,6 +87,15 @@ pub mod DAO {
         #[key]
         pub proposal_id: u256,
         pub timestamp: u64,
+    }
+
+   #[derive(Drop, starknet::Event)]
+    pub struct PollResultUpdated {
+        #[key]
+        pub proposal_id: u256,
+        pub total_for: u256,
+        pub total_against: u256,
+        pub new_status: felt252,
     }
 
     #[constructor]
@@ -158,7 +171,7 @@ pub mod DAO {
             self.proposals.write(proposal_id, proposal);
             self.proposal_exists.write(proposal_id, true)
         }
-
+        
         fn start_poll(ref self: ContractState, proposal_id: u256) {
             let mut proposal = self._validate_proposal_exists(proposal_id);
             assert(proposal.status == ProposalStatus::Pending, 'Poll phase already started');
@@ -172,6 +185,53 @@ pub mod DAO {
                         PollStarted { proposal_id, timestamp: get_block_timestamp() },
                     ),
                 );
+        }
+        
+        fn tally_poll_votes(ref self: ContractState, proposal_id: u256) {
+            let mut proposal = self._validate_proposal_exists(proposal_id);
+
+            if proposal.status != ProposalStatus::PollActive {
+                panic_with_felt252('Not in poll phase');
+            }
+
+            let total_for = proposal.vote_for;
+            let total_against = proposal.vote_against;
+
+            let threshold: u256 = 100.into();
+
+            if total_for >= threshold {
+                proposal.status = ProposalStatus::PollPassed;
+                self.proposals.write(proposal_id, proposal);
+
+                // Emit the PollResultUpdated event
+                self
+                    .emit(
+                        Event::PollResultUpdated(
+                            PollResultUpdated {
+                                proposal_id: proposal_id,
+                                total_for: total_for,
+                                total_against: total_against,
+                                new_status: 'PollPassed'.into(),
+                            },
+                        ),
+                    );
+            } else if total_against >= threshold {
+                proposal.status = ProposalStatus::PollFailed;
+                self.proposals.write(proposal_id, proposal);
+
+                // Emit the PollResultUpdated event
+                self
+                    .emit(
+                        Event::PollResultUpdated(
+                            PollResultUpdated {
+                                proposal_id: proposal_id,
+                                total_for: total_for,
+                                total_against: total_against,
+                                new_status: 'PollDefeated'.into(),
+                            },
+                        ),
+                    );
+            }
         }
     }
 
