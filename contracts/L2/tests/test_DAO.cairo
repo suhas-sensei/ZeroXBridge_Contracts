@@ -2,7 +2,7 @@ use openzeppelin_utils::serde::SerializedAppend;
 use snforge_std::DeclareResultTrait;
 use starknet::{ContractAddress, contract_address_const};
 use snforge_std::{cheat_caller_address, declare, CheatSpan, ContractClassTrait};
-use l2::DAO::{IDAODispatcher, IDAODispatcherTrait};
+use l2::DAO::{IDAODispatcher, IDAODispatcherTrait, ProposalStatus};
 
 fn owner() -> ContractAddress {
     contract_address_const::<'owner'>()
@@ -149,7 +149,7 @@ fn test_tally_poll_votes_passed() {
 
     dao_dispatcher.tally_poll_votes(200);
     let proposal = dao_dispatcher.get_proposal(2);
-    assert(proposal.state == 1, 'Proposal should be passed');
+    assert(proposal.status == ProposalStatus::PollPassed, 'Proposal should be passed');
 }
 
 #[test]
@@ -171,7 +171,7 @@ fn test_tally_poll_votes_defeated() {
 
     dao_dispatcher.tally_poll_votes(1);
     let proposal = dao_dispatcher.get_proposal(1);
-    assert(proposal.state == 4, 'Proposal should be defeated');
+    assert(proposal.status == ProposalStatus::PollFailed, 'Proposal should be defeated');
 }
 
 #[test]
@@ -190,6 +190,7 @@ fn test_tally_poll_votes_not_in_poll_phase() {
 }
 
 #[test]
+#[should_panic(expected: 'Not in poll phase')]
 fn test_tally_poll_votes_no_votes() {
     let xzb_token = contract_address_const::<'xzb_token'>();
     let dao = deploy_dao(xzb_token);
@@ -197,7 +198,7 @@ fn test_tally_poll_votes_no_votes() {
 
     let dao_dispatcher = IDAODispatcher { contract_address: dao };
 
-    dao_dispatcher.tally_poll_votes(0);
-    let proposal = dao_dispatcher.get_proposal(0);
-    assert(proposal.state == 0, 'Not in poll phase');
+    dao_dispatcher.tally_poll_votes(1);
+    let proposal = dao_dispatcher.get_proposal(1);
+    assert(proposal.status == ProposalStatus::Pending, 'Not in poll phase');
 }
