@@ -181,7 +181,7 @@ pub mod DAO {
                 creation_time: current_time,
                 poll_end_time: current_time + poll_duration,
                 voting_end_time: current_time + poll_duration + voting_duration,
-                vote_for: 100.into(),
+                vote_for: 0.into(),
                 vote_against: 0.into(),
                 state: 0 // Active
             };
