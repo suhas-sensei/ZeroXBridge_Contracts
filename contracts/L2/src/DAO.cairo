@@ -1,7 +1,6 @@
 use core::starknet::ContractAddress;
 
 #[derive(Drop, Serde, starknet::Store, PartialEq)]
-
 #[allow(starknet::store_no_default_variant)]
 pub enum ProposalStatus {
     Pending,
@@ -21,7 +20,7 @@ pub struct Proposal {
     pub voting_end_time: u64,
     pub vote_for: u256,
     pub vote_against: u256,
-    pub status: ProposalStatus, // Use ProposalStatus enum instead of u8
+    pub status: ProposalStatus // Use ProposalStatus enum instead of u8
 }
 
 #[starknet::interface]
@@ -101,12 +100,17 @@ pub mod DAO {
             }
             self.proposals.write(proposal_id, proposal);
             self.has_voted.write((proposal_id, caller), true);
-            self.emit(Event::PollVoted(PollVoted {
-                proposal_id: proposal_id,
-                voter: caller,
-                support: support,
-                vote_weight: vote_weight,
-            }));
+            self
+                .emit(
+                    Event::PollVoted(
+                        PollVoted {
+                            proposal_id: proposal_id,
+                            voter: caller,
+                            support: support,
+                            vote_weight: vote_weight,
+                        },
+                    ),
+                );
         }
 
         fn get_proposal(self: @ContractState, proposal_id: u256) -> Proposal {
