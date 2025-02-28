@@ -89,7 +89,7 @@ pub mod DAO {
         pub timestamp: u64,
     }
 
-   #[derive(Drop, starknet::Event)]
+    #[derive(Drop, starknet::Event)]
     pub struct PollResultUpdated {
         #[key]
         pub proposal_id: u256,
@@ -171,7 +171,7 @@ pub mod DAO {
             self.proposals.write(proposal_id, proposal);
             self.proposal_exists.write(proposal_id, true)
         }
-        
+
         fn start_poll(ref self: ContractState, proposal_id: u256) {
             let mut proposal = self._validate_proposal_exists(proposal_id);
             assert(proposal.status == ProposalStatus::Pending, 'Poll phase already started');
@@ -186,7 +186,7 @@ pub mod DAO {
                     ),
                 );
         }
-        
+
         fn tally_poll_votes(ref self: ContractState, proposal_id: u256) {
             let mut proposal = self._validate_proposal_exists(proposal_id);
 

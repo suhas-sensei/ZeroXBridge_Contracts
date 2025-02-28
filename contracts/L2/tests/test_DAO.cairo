@@ -4,7 +4,7 @@ use starknet::{ContractAddress, contract_address_const};
 use snforge_std::{
     cheat_caller_address, cheat_block_timestamp, declare, CheatSpan, ContractClassTrait,
 };
-use snforge_std::{cheat_caller_address, declare, CheatSpan, ContractClassTrait};
+// use snforge_std::{cheat_caller_address, declare, CheatSpan, ContractClassTrait};
 use l2::DAO::{IDAODispatcher, IDAODispatcherTrait, ProposalStatus};
 
 fn owner() -> ContractAddress {
@@ -177,10 +177,10 @@ fn test_start_poll_after_poll_end_should_fail() {
 
 #[test]
 #[should_panic(expected: 'Not in poll phase')]
-fn test_tally_poll_votes_defeated() {
+fn test_tally_poll_votes_passed() {
     let owner = owner();
     let alice = alice();
-    
+
     let xzb_token = contract_address_const::<'xzb_token'>();
     let dao = deploy_dao(xzb_token);
     create_proposal(dao, 1, 'Proposal 1'.into(), 1000, 2000);
@@ -207,7 +207,7 @@ fn test_tally_poll_votes_defeated() {
     create_proposal(dao, 1, 'Proposal 1'.into(), 1000, 2000);
 
     let dao_dispatcher = IDAODispatcher { contract_address: dao };
-    
+
     cheat_caller_address(dao, owner, CheatSpan::TargetCalls(1));
     dao_dispatcher.vote_in_poll(1, false);
 
