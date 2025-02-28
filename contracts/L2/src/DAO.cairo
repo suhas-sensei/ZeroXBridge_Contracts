@@ -20,7 +20,7 @@ pub struct Proposal {
     pub voting_end_time: u64,
     pub vote_for: u256,
     pub vote_against: u256,
-    pub status: ProposalStatus,
+    pub status: ProposalStatus // Use ProposalStatus enum instead of u8
 }
 
 #[starknet::interface]
@@ -55,6 +55,7 @@ pub mod DAO {
         xzb_token: ContractAddress,
         proposals: Map<u256, Proposal>,
         has_voted: Map<(u256, ContractAddress), bool>,
+        proposal_exists: Map<u256, bool>,
     }
 
     #[event]
@@ -144,6 +145,7 @@ pub mod DAO {
                 status: ProposalStatus::Pending,
             };
             self.proposals.write(proposal_id, proposal);
+            self.proposal_exists.write(proposal_id, true)
         }
     }
 
@@ -163,8 +165,8 @@ pub mod DAO {
         }
 
         fn _validate_proposal_exists(self: @ContractState, proposal_id: u256) -> Proposal {
+            assert(self.proposal_exists.read(proposal_id), 'Proposal does not exist');
             let proposal = self.proposals.read(proposal_id);
-            assert(proposal.id == proposal_id, 'Proposal does not exist');
             proposal
         }
 
