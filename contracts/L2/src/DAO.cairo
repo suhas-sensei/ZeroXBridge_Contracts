@@ -1,16 +1,18 @@
 use core::starknet::ContractAddress;
 
-#[derive(Drop, Serde, starknet::Store, PartialEq)]
+#[derive(Drop, Serde, Copy, starknet::Store, PartialEq)]
 #[allow(starknet::store_no_default_variant)]
 pub enum ProposalStatus {
     Pending,
+    PollActive,
     PollPassed,
+    PollFailed,
     Approved,
     Executed,
     Rejected,
 }
 
-#[derive(Drop, Serde, starknet::Store)]
+#[derive(Drop, Serde, Copy, starknet::Store)]
 pub struct Proposal {
     pub id: u256,
     pub description: felt252,
@@ -50,10 +52,6 @@ pub mod DAO {
     use core::starknet::storage::{StoragePointerReadAccess, StoragePointerWriteAccess, Map};
     use super::{Proposal, ProposalStatus};
     use openzeppelin_token::erc20::interface::{IERC20Dispatcher, IERC20DispatcherTrait};
-
-    pub const PollActive: u8 = 0;
-    pub const PollPassed: u8 = 2;
-    pub const PollDefeated: u8 = 4;
     use core::panic_with_felt252;
 
     #[storage]
@@ -167,7 +165,7 @@ pub mod DAO {
         fn tally_poll_votes(ref self: ContractState, proposal_id: u256) {
             let mut proposal = self._validate_proposal_exists(proposal_id);
 
-            if proposal.state != PollActive {
+            if proposal.status != ProposalStatus::PollActive {
                 panic_with_felt252('Not in poll phase');
             }
 
@@ -177,7 +175,7 @@ pub mod DAO {
             let threshold: u256 = 100.into();
 
             if total_for >= threshold {
-                proposal.state = PollPassed;
+                proposal.status = ProposalStatus::PollPassed;
                 self.proposals.write(proposal_id, proposal);
 
                 // Emit the PollResultUpdated event
@@ -192,9 +190,8 @@ pub mod DAO {
                             },
                         ),
                     );
-            }
-            if total_against >= threshold {
-                proposal.state = PollDefeated;
+            } else if total_against >= threshold {
+                proposal.status = ProposalStatus::PollFailed;
                 self.proposals.write(proposal_id, proposal);
 
                 // Emit the PollResultUpdated event

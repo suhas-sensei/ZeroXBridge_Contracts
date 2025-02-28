@@ -23,8 +23,8 @@ trait IERC20<TContractState> {
 #[starknet::contract]
 pub mod DynamicRate {
     use super::IDynamicRate;
-    use super::{ContractAddress, IL1Oracle, IL1OracleDispatcher, IL1OracleDispatcherTrait};
-    use super::{IERC20, IERC20Dispatcher, IERC20DispatcherTrait};
+    use super::{ContractAddress, IL1OracleDispatcher, IL1OracleDispatcherTrait};
+    use super::{IERC20Dispatcher, IERC20DispatcherTrait};
     use core::starknet::storage::{StoragePointerWriteAccess, StoragePointerReadAccess};
     use starknet::get_caller_address;
 
