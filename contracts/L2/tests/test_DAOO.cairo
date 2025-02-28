@@ -8,7 +8,7 @@ use core::traits::Into;
 use core::option::OptionTrait;
 
 // Import the contract interface and types
-use l2::DAO::{IPollContractDispatcher, IPollContractDispatcherTrait};
+use l2::DAOO::{IPollContractDispatcher, IPollContractDispatcherTrait};
 
 fn deploy_dao() -> (ContractAddress, IPollContractDispatcher) {
     // Deploy the contract
