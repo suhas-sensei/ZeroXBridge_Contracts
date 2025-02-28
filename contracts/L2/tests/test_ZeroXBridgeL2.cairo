@@ -1,6 +1,5 @@
 use snforge_std::{
-    declare, spy_events,
-    ContractClassTrait, DeclareResultTrait, EventSpyAssertionsTrait, CheatSpan,
+    declare, spy_events, ContractClassTrait, DeclareResultTrait, EventSpyAssertionsTrait, CheatSpan,
     cheat_caller_address, EventSpyTrait,
 };
 
@@ -25,7 +24,7 @@ fn owner() -> ContractAddress {
 fn deploy_xzb() -> ContractAddress {
     let contract_class = declare("xZBERC20").unwrap().contract_class();
     let mut calldata = array![];
-        calldata.append_serde(owner());
+    calldata.append_serde(owner());
     let (contract_address, _) = contract_class.deploy(@calldata).unwrap();
     contract_address
 }
@@ -58,13 +57,9 @@ fn test_burn_xzb_for_unlock_happy_path() {
 
     // Compute expected commitment hash.
     let data_to_hash = BurnData {
-        caller: alice_addr.try_into().unwrap(),
-        amount_low: 500,
-        amount_high: 0,
+        caller: alice_addr.try_into().unwrap(), amount_low: 500, amount_high: 0,
     };
-    let expected_hash = PedersenTrait::new(0)
-        .update_with(data_to_hash)
-        .finalize();
+    let expected_hash = PedersenTrait::new(0).update_with(data_to_hash).finalize();
 
     // Build expected event value.
     let expected_event = (
@@ -75,8 +70,8 @@ fn test_burn_xzb_for_unlock_happy_path() {
                 amount_low: 500,
                 amount_high: 0,
                 commitment_hash: expected_hash,
-            }
-        )
+            },
+        ),
     );
 
     // Assert that the expected event was emitted.
@@ -132,9 +127,7 @@ fn test_commitment_hash_consistency() {
 
     // Compute expected hash using BurnData.
     let data_to_hash = BurnData {
-        caller: alice_addr.try_into().unwrap(),
-        amount_low: 500,
-        amount_high: 0,
+        caller: alice_addr.try_into().unwrap(), amount_low: 500, amount_high: 0,
     };
     let expected = PedersenTrait::new(0).update_with(data_to_hash).finalize();
     println!("Expected commitment hash: {:?}", expected);
