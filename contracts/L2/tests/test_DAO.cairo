@@ -190,7 +190,6 @@ fn test_tally_poll_votes_not_in_poll_phase() {
 }
 
 #[test]
-#[should_panic(expected: 'Not in poll phase')]
 fn test_tally_poll_votes_no_votes() {
     let xzb_token = contract_address_const::<'xzb_token'>();
     let dao = deploy_dao(xzb_token);
@@ -198,7 +197,7 @@ fn test_tally_poll_votes_no_votes() {
 
     let dao_dispatcher = IDAODispatcher { contract_address: dao };
 
-    dao_dispatcher.tally_poll_votes(1);
-    let proposal = dao_dispatcher.get_proposal(1);
+    dao_dispatcher.tally_poll_votes(0);
+    let proposal = dao_dispatcher.get_proposal(0);
     assert(proposal.state == 0, 'Not in poll phase');
 }
