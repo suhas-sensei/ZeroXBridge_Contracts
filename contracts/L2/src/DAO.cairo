@@ -42,7 +42,7 @@ pub trait IDAO<TContractState> {
 #[starknet::contract]
 pub mod DAO {
     use starknet::event::EventEmitter;
-use starknet::storage::StorageMapWriteAccess;
+    use starknet::storage::StorageMapWriteAccess;
     use starknet::storage::StorageMapReadAccess;
     use starknet::ContractAddress;
     use starknet::get_caller_address;
@@ -166,7 +166,12 @@ use starknet::storage::StorageMapWriteAccess;
             assert(current_time < proposal.poll_end_time, 'Poll phase ended');
             proposal.status = ProposalStatus::PollActive;
             self.proposals.write(proposal_id, proposal);
-            self.emit(Event::PollStarted(PollStarted { proposal_id, timestamp: get_block_timestamp() }));
+            self
+                .emit(
+                    Event::PollStarted(
+                        PollStarted { proposal_id, timestamp: get_block_timestamp() },
+                    ),
+                );
         }
     }
 
