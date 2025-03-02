@@ -28,12 +28,17 @@ pub trait IDAO<TContractState> {
     fn vote_in_poll(ref self: TContractState, proposal_id: u256, support: bool);
     fn get_proposal(self: @TContractState, proposal_id: u256) -> Proposal;
     fn has_voted(self: @TContractState, proposal_id: u256, voter: ContractAddress) -> bool;
+
     fn create_proposal(
         ref self: TContractState,
         proposal_id: u256,
         description: felt252,
         poll_duration: u64,
         voting_duration: u64,
+    );
+
+    fn submit_proposal(
+        ref self: TContractState, description: felt252, poll_end_time: u64, voting_end_time: u64,
     );
 }
 
@@ -56,12 +61,14 @@ pub mod DAO {
         proposals: Map<u256, Proposal>,
         has_voted: Map<(u256, ContractAddress), bool>,
         proposal_exists: Map<u256, bool>,
+        next_proposal_id: u256,
     }
 
     #[event]
     #[derive(Drop, starknet::Event)]
     pub enum Event {
         PollVoted: PollVoted,
+        ProposalSubmitted: ProposalSubmitted,
     }
 
     #[derive(Drop, starknet::Event)]
@@ -74,9 +81,20 @@ pub mod DAO {
         pub vote_weight: u256,
     }
 
+    #[derive(Drop, starknet::Event)]
+    struct ProposalSubmitted {
+        #[key]
+        proposal_id: u256,
+        creator: ContractAddress,
+        description: felt252,
+        poll_end_time: u64,
+        voting_end_time: u64,
+    }
+
     #[constructor]
     fn constructor(ref self: ContractState, xzb_token_address: ContractAddress) {
         self.xzb_token.write(xzb_token_address);
+        self.next_proposal_id.write(1.into());
     }
 
     #[abi(embed_v0)]
@@ -146,6 +164,50 @@ pub mod DAO {
             };
             self.proposals.write(proposal_id, proposal);
             self.proposal_exists.write(proposal_id, true)
+        }
+
+        fn submit_proposal(
+            ref self: ContractState, description: felt252, poll_end_time: u64, voting_end_time: u64,
+        ) {
+            let caller = get_caller_address();
+            let current_time = get_block_timestamp();
+
+            assert(poll_end_time > current_time, 'Poll end > now');
+            assert(voting_end_time > poll_end_time, 'Voting > poll end');
+
+            let balance = self._get_voter_weight(caller);
+            assert(balance > 0, 'Insufficient xZB tokens');
+
+            let proposal_id = self.next_proposal_id.read();
+            self.next_proposal_id.write(proposal_id + 1.into());
+
+            let proposal = Proposal {
+                id: proposal_id,
+                description: description,
+                creator: caller,
+                creation_time: current_time,
+                poll_end_time: poll_end_time,
+                voting_end_time: voting_end_time,
+                vote_for: 0.into(),
+                vote_against: 0.into(),
+                status: ProposalStatus::Pending,
+            };
+
+            self.proposals.write(proposal_id, proposal);
+            self.proposal_exists.write(proposal_id, true);
+
+            self
+                .emit(
+                    Event::ProposalSubmitted(
+                        ProposalSubmitted {
+                            proposal_id: proposal_id,
+                            creator: caller,
+                            description: description,
+                            poll_end_time: poll_end_time,
+                            voting_end_time: voting_end_time,
+                        },
+                    ),
+                );
         }
     }
 

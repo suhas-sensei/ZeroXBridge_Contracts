@@ -3,6 +3,10 @@ use snforge_std::DeclareResultTrait;
 use starknet::{ContractAddress, contract_address_const};
 use snforge_std::{cheat_caller_address, declare, CheatSpan, ContractClassTrait};
 use l2::DAO::{IDAODispatcher, IDAODispatcherTrait};
+use l2::xZBERC20::{IMintableDispatcher, IMintableDispatcherTrait};
+use core::starknet::get_block_timestamp;
+use l2::DAO::ProposalStatus;
+use openzeppelin_token::erc20::interface::{IERC20Dispatcher, IERC20DispatcherTrait};
 
 fn owner() -> ContractAddress {
     contract_address_const::<'owner'>()
@@ -10,6 +14,14 @@ fn owner() -> ContractAddress {
 
 fn alice() -> ContractAddress {
     contract_address_const::<'alice'>()
+}
+
+fn deploy_xzb() -> ContractAddress {
+    let contract_class = declare("xZBERC20").unwrap().contract_class();
+    let mut calldata = array![];
+    calldata.append_serde(owner());
+    let (contract_address, _) = contract_class.deploy(@calldata).unwrap();
+    contract_address
 }
 
 fn deploy_dao(xzb_token: ContractAddress) -> ContractAddress {
@@ -30,6 +42,12 @@ fn create_proposal(
     let dao_dispatcher = IDAODispatcher { contract_address: dao };
     cheat_caller_address(dao, owner(), CheatSpan::TargetCalls(1));
     dao_dispatcher.create_proposal(proposal_id, description, poll_duration, voting_duration);
+}
+
+fn mint_xzb(xzb_token: ContractAddress, user: ContractAddress, amount: u256) {
+    let token_dispatcher = IERC20Dispatcher { contract_address: xzb_token };
+    cheat_caller_address(xzb_token, owner(), CheatSpan::TargetCalls(1));
+    token_dispatcher.transfer(user, amount);
 }
 
 #[test]
@@ -128,4 +146,112 @@ fn test_vote_with_zero_token_balance_should_fail() {
     let dao_dispatcher = IDAODispatcher { contract_address: dao };
     cheat_caller_address(dao, charlie, CheatSpan::TargetCalls(1));
     dao_dispatcher.vote_in_poll(1, true);
+}
+
+#[test]
+fn test_submit_proposal_success() {
+    let owner = owner();
+    let xzb_token = deploy_xzb();
+    let dao = deploy_dao(xzb_token);
+
+    // Mint tokens to the owner
+    let mintable_dispatcher = IMintableDispatcher { contract_address: xzb_token };
+    cheat_caller_address(xzb_token, owner, CheatSpan::TargetCalls(1));
+    mintable_dispatcher.mint(owner, 1000.into());
+
+    let dao_dispatcher = IDAODispatcher { contract_address: dao };
+    cheat_caller_address(dao, owner, CheatSpan::TargetCalls(1));
+
+    dao_dispatcher
+        .submit_proposal(
+            'Proposal 1'.into(), get_block_timestamp() + 3600, get_block_timestamp() + 7200,
+        );
+
+    let proposal = dao_dispatcher.get_proposal(1);
+    assert(proposal.id == 1, 'Proposal ID mismatch');
+    assert(proposal.description == 'Proposal 1'.into(), 'Proposal description mismatch');
+    assert(proposal.creator == owner, 'Proposal creator mismatch');
+}
+
+#[test]
+#[should_panic(expected: 'Insufficient xZB tokens')]
+fn test_submit_proposal_insufficient_xzb() {
+    let alice = alice();
+    let xzb_token = deploy_xzb();
+    let dao = deploy_dao(xzb_token);
+
+    let dao_dispatcher = IDAODispatcher { contract_address: dao };
+    cheat_caller_address(dao, alice, CheatSpan::TargetCalls(1));
+
+    dao_dispatcher
+        .submit_proposal(
+            'Proposal 2'.into(), get_block_timestamp() + 3600, get_block_timestamp() + 7200,
+        );
+}
+
+#[test]
+#[should_panic(expected: 'u64_sub Overflow')]
+fn test_submit_proposal_poll_end_in_past() {
+    let owner = owner();
+    let xzb_token = deploy_xzb();
+    let dao = deploy_dao(xzb_token);
+
+    let dao_dispatcher = IDAODispatcher { contract_address: dao };
+    cheat_caller_address(dao, owner, CheatSpan::TargetCalls(1));
+
+    dao_dispatcher
+        .submit_proposal(
+            'Proposal 3'.into(), get_block_timestamp() - 100, get_block_timestamp() + 3600,
+        );
+}
+
+#[test]
+#[should_panic(expected: 'Voting > poll end')]
+fn test_submit_proposal_invalid_voting_end() {
+    let owner = owner();
+    let xzb_token = deploy_xzb();
+    let dao = deploy_dao(xzb_token);
+
+    let dao_dispatcher = IDAODispatcher { contract_address: dao };
+    cheat_caller_address(dao, owner, CheatSpan::TargetCalls(1));
+
+    dao_dispatcher
+        .submit_proposal(
+            'Proposal 4'.into(), get_block_timestamp() + 3600, get_block_timestamp() + 3599,
+        );
+}
+
+#[test]
+fn test_proposal_id_increment() {
+    let token_addr = deploy_xzb();
+    let owner = owner();
+
+    // Mint tokens to the owner
+    cheat_caller_address(token_addr, owner, CheatSpan::TargetCalls(1));
+    IMintableDispatcher { contract_address: token_addr }.mint(owner, 1000.into());
+
+    let dao = deploy_dao(token_addr); // Pass the ContractAddress to deploy_dao
+
+    let dao_dispatcher = IDAODispatcher { contract_address: dao };
+    cheat_caller_address(dao, owner, CheatSpan::TargetCalls(2));
+
+    mint_xzb(token_addr, owner, 100.into());
+
+    dao_dispatcher
+        .submit_proposal(
+            'Proposal 5'.into(), get_block_timestamp() + 3600, get_block_timestamp() + 7200,
+        );
+
+    mint_xzb(token_addr, owner, 100.into());
+
+    dao_dispatcher
+        .submit_proposal(
+            'Proposal 5'.into(), get_block_timestamp() + 3600, get_block_timestamp() + 7200,
+        );
+
+    let proposal_1 = dao_dispatcher.get_proposal(1);
+    let proposal_2 = dao_dispatcher.get_proposal(2);
+
+    assert(proposal_1.id == 1, 'First proposal ID should be 1');
+    assert(proposal_2.id == 2, 'Second proposal ID should be 2');
 }
