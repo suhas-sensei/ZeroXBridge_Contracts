@@ -115,7 +115,6 @@ pub mod DAO {
         pub total_for: u256,
         pub total_against: u256,
         pub new_status: felt252,
-
     }
 
     #[constructor]
@@ -192,8 +191,8 @@ pub mod DAO {
             self.proposals.write(proposal_id, proposal);
             self.proposal_exists.write(proposal_id, true)
         }
-        
-           fn submit_proposal(
+
+        fn submit_proposal(
             ref self: ContractState, description: felt252, poll_end_time: u64, voting_end_time: u64,
         ) {
             let caller = get_caller_address();
