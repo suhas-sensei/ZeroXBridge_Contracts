@@ -134,7 +134,7 @@ mod Timelock {
             let mut i = 0;
             while i < calldata_length {
                 // If indexing returns a pointer (@u256), use .read() to obtain the value.
-                let element = calldata[i].at(i).read();
+                let element: u256 = *calldata.at(i);
                 action_entry.calldata.append().write(element);
                 i = i + 1;
             };
@@ -251,7 +251,7 @@ mod Timelock {
     
             while i < calldata_length {
                 // Use .read() to access the value at index `i`.
-                let element: u256 = calldata[i].read(); // Corrected access.
+                let element: u256 = *calldata.at(i);
                 let element_felt: felt252 = self.u256_to_felt252(element); // Convert u256 to felt252.
                 calldata_felt.append(element_felt);
                 i = i + 1;
