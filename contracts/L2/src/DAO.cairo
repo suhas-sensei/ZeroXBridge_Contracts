@@ -159,24 +159,34 @@ pub mod DAO {
             let bindingVoteCasted = self.bindingVoteCasted.read((proposal_id, caller));
             assert!(binding_vote_proposal == true, "Proposal not in voting phase");
             assert!(bindingVoteCasted == false, "Binding Vote Already casted");
-
             let vote_weight = self._get_voter_weight(caller);
             assert(vote_weight > 0, 'No voting power');
-            // let oldBindingVotesCountMap = self.bindingVotesCountMap.read(proposal_id);
+            let oldBindingVotesCountMap = self.bindingVotesCountMap.read(proposal_id);
 
-            // let newBindingVotesCountMap = self
-        //     ._update_proposal_votes(oldBindingVotesCountMap, support, vote_weight);
+            let newBindingVotesCountMap = self
+                ._update_proposal_votes(oldBindingVotesCountMap, support, vote_weight);
 
-            // self.pollVotesCount.write(self.pollVotesCount.read() + 1);
-        // self.bindingVotesCountMap.write(proposal_id, newBindingVotesCountMap);
-        // self.bindingVoteCasted.write((proposal_id, caller), true);
-        // self.bindingVotesCount.write(self.bindingVotesCount.read() + 1);
+            self.pollVotesCount.write(self.pollVotesCount.read() + 1);
+            self.bindingVotesCountMap.write(proposal_id, newBindingVotesCountMap);
+            self.bindingVoteCasted.write((proposal_id, caller), true);
+            self.bindingVotesCount.write(self.bindingVotesCount.read() + 1);
+
+            self
+                .emit(
+                    Event::BindingVoteCast(
+                        BindingVoteCast {
+                            proposal_id: proposal_id,
+                            voter: caller,
+                            support: support,
+                            vote_weight: vote_weight,
+                        },
+                    ),
+                )
         }
 
         fn moveProposal(ref self: ContractState, proposal_id: u256) {
             self.bindingVoteProposals.write(proposal_id, true);
         }
-
 
         fn vote_in_poll(ref self: ContractState, proposal_id: u256, support: bool) {
             let caller = get_caller_address();
