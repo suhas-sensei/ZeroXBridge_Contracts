@@ -101,6 +101,7 @@ pub mod DAO {
         voting_end_time: u64,
     }
 
+    #[derive(Drop, starknet::Event)]
     pub struct PollStarted {
         #[key]
         pub proposal_id: u256,
