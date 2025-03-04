@@ -2,7 +2,8 @@ use starknet::ContractAddress;
 use starknet::get_block_timestamp;
 use starknet::get_caller_address;
 use starknet::storage::{
-    StoragePointerReadAccess, StoragePointerWriteAccess, StoragePathEntry, Vec, Map,};
+    StoragePointerReadAccess, StoragePointerWriteAccess, StoragePathEntry, Vec, Map,
+};
 use core::array::{ArrayTrait};
 use core::poseidon::PoseidonTrait;
 use core::poseidon::poseidon_hash_span;
@@ -17,10 +18,7 @@ trait IExecutor<TContractState> {
 #[starknet::interface]
 trait ITimelock<TContractState> {
     fn queue_action(
-        ref self: TContractState,
-        executor: ContractAddress,
-        delay: u64,
-        calldata: Array<u256>
+        ref self: TContractState, executor: ContractAddress, delay: u64, calldata: Array<u256>,
     ) -> felt252;
 
     fn execute_action(ref self: TContractState, action_id: felt252);
@@ -88,7 +86,7 @@ mod Timelock {
         old_delay: u64,
         new_delay: u64,
     }
-     
+
     #[derive(Drop, Serde, Copy, PartialEq, starknet::Store)]
     #[allow(starknet::store_no_default_variant)]
     enum ActionStatus {
@@ -98,7 +96,9 @@ mod Timelock {
     }
 
     #[constructor]
-    fn constructor(ref self: ContractState, initial_minimum_delay: u64, governance: ContractAddress) {
+    fn constructor(
+        ref self: ContractState, initial_minimum_delay: u64, governance: ContractAddress,
+    ) {
         self.action_count.write(0);
         self.minimum_delay.write(initial_minimum_delay);
         self.governance.write(governance);
@@ -107,10 +107,7 @@ mod Timelock {
     #[abi(embed_v0)]
     impl ITimelockImpl of ITimelock<ContractState> {
         fn queue_action(
-            ref self: ContractState,
-            executor: ContractAddress,
-            delay: u64,
-            calldata: Array<u256>
+            ref self: ContractState, executor: ContractAddress, delay: u64, calldata: Array<u256>,
         ) -> felt252 {
             let caller = get_caller_address();
             assert!(caller == self.governance.read(), "Unauthorized");
@@ -141,12 +138,12 @@ mod Timelock {
 
             self.action_count.write(self.action_count.read() + 1);
 
-            self.emit(Event::ActionQueued(ActionQueued {
-                action_id,
-                executor,
-                executable_timestamp,
-                calldata,
-            }));
+            self
+                .emit(
+                    Event::ActionQueued(
+                        ActionQueued { action_id, executor, executable_timestamp, calldata },
+                    ),
+                );
 
             action_id
         }
@@ -180,16 +177,15 @@ mod Timelock {
                 j = j + 1;
             };
 
-            let executor_contract = IExecutorDispatcher { 
-                contract_address: executor 
-            };
+            let executor_contract = IExecutorDispatcher { contract_address: executor };
             executor_contract.execute(calldata_array);
 
-            self.emit(Event::ActionExecuted(ActionExecuted {
-                action_id,
-                executor,
-                executed_timestamp: current_time,
-            }));
+            self
+                .emit(
+                    Event::ActionExecuted(
+                        ActionExecuted { action_id, executor, executed_timestamp: current_time },
+                    ),
+                );
         }
 
         fn cancel_action(ref self: ContractState, action_id: felt252) {
@@ -201,30 +197,24 @@ mod Timelock {
             assert!(status == ActionStatus::Pending, "Not cancellable");
 
             action_entry.status.write(ActionStatus::Canceled);
-            
-            self.emit(Event::ActionCanceled(ActionCanceled {
-                action_id,
-                canceled_by: caller,
-            }));
+
+            self.emit(Event::ActionCanceled(ActionCanceled { action_id, canceled_by: caller }));
         }
 
         fn set_minimum_delay(ref self: ContractState, new_delay: u64) {
             let caller = get_caller_address();
             assert!(caller == self.governance.read(), "Unauthorized");
-            
+
             let old_delay = self.minimum_delay.read();
             self.minimum_delay.write(new_delay);
-            
-            self.emit(Event::MinimumDelayChanged(MinimumDelayChanged {
-                old_delay,
-                new_delay,
-            }));
+
+            self.emit(Event::MinimumDelayChanged(MinimumDelayChanged { old_delay, new_delay }));
         }
 
         fn get_pending_actions(self: @ContractState) -> Array<felt252> {
             let mut pending = ArrayTrait::new();
             let count = self.action_count.read();
-            
+
             for i in 0..count {
                 let action_id: felt252 = i.into();
                 let action_entry = self.actions.entry(action_id);
@@ -239,40 +229,40 @@ mod Timelock {
     #[generate_trait]
     impl InternalImpl of InternalTrait {
         fn generate_action_id(
-            self: @ContractState,
-            executor: ContractAddress,
-            calldata: Span<u256>,
-            delay: u64
+            self: @ContractState, executor: ContractAddress, calldata: Span<u256>, delay: u64,
         ) -> felt252 {
             // Convert calldata elements into a memory array of felt252.
             let mut calldata_felt = array![]; // Memory array of felt252.
             let calldata_length = calldata.len();
             let mut i = 0;
-    
+
             while i < calldata_length {
                 // Use .read() to access the value at index `i`.
                 let element: u256 = *calldata.at(i);
-                let element_felt: felt252 = self.u256_to_felt252(element); // Convert u256 to felt252.
+                let element_felt: felt252 = self
+                    .u256_to_felt252(element); // Convert u256 to felt252.
                 calldata_felt.append(element_felt);
                 i = i + 1;
             };
-    
+
             // Generate the action ID using Poseidon hash.
             PoseidonTrait::new()
                 .update(executor.into()) // Convert ContractAddress to felt252.
                 .update(delay.into()) // Convert u64 to felt252.
                 .update(poseidon_hash_span(calldata_felt.span())) // Hash the calldata array.
                 .finalize()
-        } 
+        }
         fn u256_to_felt252(self: @ContractState, value: u256) -> felt252 {
             // Access the low and high parts of u256 directly (as fields, not methods).
             let low = value.low; // Lower 128 bits (u128).
             let high = value.high; // Upper 128 bits (u128).
-    
+
             // Truncate the high part to 124 bits (since felt252 can hold 252 bits: 128 + 124).
-            let truncated_high = high & 0x0FFFFFFFFFFFFFFFF; // Mask to retain only the lower 124 bits.
-    
-            // Use Poseidon hashing to combine the truncated high part and low part into a single felt252.
+            let truncated_high = high
+                & 0x0FFFFFFFFFFFFFFFF; // Mask to retain only the lower 124 bits.
+
+            // Use Poseidon hashing to combine the truncated high part and low part into a single
+            // felt252.
             PoseidonTrait::new()
                 .update(truncated_high.into()) // Convert truncated_high to felt252.
                 .update(low.into()) // Convert low to felt252.
