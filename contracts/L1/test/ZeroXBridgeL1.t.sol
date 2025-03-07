@@ -9,6 +9,7 @@ import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import "@chainlink/contracts/src/v0.8/shared/interfaces/AggregatorV3Interface.sol";
 
 import {MockERC20} from "./mocks/MockERC20.sol";
+import {console} from "forge-std/console.sol";
 
 interface IGpsStatementVerifier {
     function verifyProofAndRegister(
@@ -66,6 +67,12 @@ contract ZeroXBridgeL1Test is Test {
     address public user2 = address(0x3);
     address public relayer = address(0x4);
     address public nonRelayer = address(0x5);
+    address public admin;
+    address public token1;
+    address public token2;
+
+    uint256 public l2TxId = 12345;
+    bytes32 public commitmentHash;
 
     uint256 public cairoVerifierId = 123456789;
 
@@ -81,15 +88,21 @@ contract ZeroXBridgeL1Test is Test {
     event RelayerStatusChanged(address indexed relayer, bool status);
 
     event FundsClaimed(address indexed user, uint256 amount);
+    
+    event ClaimEvent(address indexed user, uint256 amount);
+    
+    event DepositEvent(address indexed token, uint256 amount, address indexed user, bytes32 commitmentHash);
 
     function setUp() public {
-        admin = assetPricer.admin();
+        admin = address(0x123);
         token1 = address(0x456);
         token2 = address(0x789);
         token = new MockERC20(18);
+        mockVerifier = new MockGpsStatementVerifier();
+        
         vm.startPrank(owner);
         // Deploy the AssetPricer contract
-        assetPricer = new ZeroXBridgeL1(address(mockVerifier), cairoVerifierId, owner, address(token));
+        assetPricer = new ZeroXBridgeL1(address(mockVerifier), admin, cairoVerifierId, owner, address(token));
 
         // Setup approved relayer
         assetPricer.setRelayerStatus(relayer, true);
@@ -103,6 +116,11 @@ contract ZeroXBridgeL1Test is Test {
             proofParams.push(i);
             proof.push(i + 100);
         }
+        
+        // Create a dummy commitment hash for tests involving unlock_funds_with_proof
+        address user = address(0x123);
+        uint256 amount = 100 ether;
+        commitmentHash = keccak256(abi.encodePacked(uint256(uint160(user)), amount, l2TxId, block.chainid));
 
         // Deploy mock ERC20 tokens
         dai = new MockERC20(18); // DAI with 18 decimals
@@ -279,7 +297,7 @@ contract ZeroXBridgeL1Test is Test {
         assetPricer.claim_tokens();
     }
 
-    function testPartialClaimNotAllowed() public {
+    function testFullClaimOnly() public {
         // Setup test data
         uint256 amount = 100 ether;
         address user = address(0x123);
@@ -288,13 +306,18 @@ contract ZeroXBridgeL1Test is Test {
         vm.prank(relayer);
         assetPricer.unlock_funds_with_proof(proofParams, proof, user, amount, l2TxId, commitmentHash);
 
-        // Attempt partial claim
-        vm.prank(user);
-        vm.expectRevert("ZeroXBridge: No tokens to claim");
-        assetPricer.claim_tokens();
-
-        // Verify full amount remains claimable
+        // Verify initial claimable amount
         assertEq(assetPricer.claimableFunds(user), amount);
+        
+        // User claims full amount
+        vm.prank(user);
+        assetPricer.claim_tokens();
+        
+        // Verify no claimable funds remain after claim
+        assertEq(assetPricer.claimableFunds(user), 0);
+        
+        // Verify tokens were transferred to user
+        assertEq(token.balanceOf(user), amount);
     }
     
 
@@ -306,7 +329,7 @@ contract ZeroXBridgeL1Test is Test {
 
         vm.startPrank(owner);
         // Deploy the AssetPricer contract
-        ZeroXBridgeL1 newAssetPricer = new ZeroXBridgeL1(address(mockVerifier), cairoVerifierId, owner, address(token));
+        ZeroXBridgeL1 newAssetPricer = new ZeroXBridgeL1(address(mockVerifier), admin, cairoVerifierId, owner, address(token));
         vm.stopPrank();
 
         // Call update_asset_pricing
@@ -370,5 +393,159 @@ contract ZeroXBridgeL1Test is Test {
         vm.expectRevert("Only admin can perform this action");
         assetPricer.dewhitelistToken(token1);
         vm.stopPrank();
+    }
+    
+    // Test deposit_asset functionality
+    function testDepositAsset() public {
+        // Setup - whitelist the token for deposits
+        vm.prank(admin);
+        assetPricer.whitelistToken(address(token));
+        
+        uint256 depositAmount = 100 * 10**18;
+        
+        // Mint some tokens to user1
+        token.mint(user1, depositAmount);
+        
+        // Approve the bridge to spend user1's tokens
+        vm.prank(user1);
+        token.approve(address(assetPricer), depositAmount);
+        
+        // Expect the DepositEvent to be emitted
+        vm.expectEmit(true, true, true, false);
+        bytes32 expectedCommitmentHash = keccak256(
+            abi.encodePacked(
+                address(token),
+                depositAmount,
+                user1,
+                uint256(0), // nonce is 0 for first deposit
+                block.chainid
+            )
+        );
+        emit DepositEvent(address(token), depositAmount, user1, expectedCommitmentHash);
+        
+        // Make the deposit as user1
+        vm.prank(user1);
+        bytes32 returnedHash = assetPricer.deposit_asset(address(token), depositAmount, user1);
+        
+        // Verify the correct hash was returned
+        assertEq(returnedHash, expectedCommitmentHash, "Commitment hash should match expected");
+        
+        // Verify token transfer happened correctly
+        assertEq(token.balanceOf(user1), 0, "User should have transferred all tokens");
+        assertEq(token.balanceOf(address(assetPricer)), depositAmount + 1000000 * 10**18, "Contract should have received tokens");
+        
+        // Verify deposit tracking
+        assertEq(assetPricer.userDeposits(address(token), user1), depositAmount, "User deposit should be tracked");
+        
+        // Verify nonce was incremented
+        assertEq(assetPricer.nextDepositNonce(user1), 1, "Nonce should be incremented");
+    }
+    
+    function testDepositAssetForOtherUser() public {
+        // Setup - whitelist the token for deposits
+        vm.prank(admin);
+        assetPricer.whitelistToken(address(token));
+        
+        uint256 depositAmount = 100 * 10**18;
+        
+        // Mint some tokens to user1
+        token.mint(user1, depositAmount);
+        
+        // Approve the bridge to spend user1's tokens
+        vm.prank(user1);
+        token.approve(address(assetPricer), depositAmount);
+        
+        // User1 deposits for user2
+        vm.prank(user1);
+        bytes32 returnedHash = assetPricer.deposit_asset(address(token), depositAmount, user2);
+        
+        // Verify deposit tracking for user2 (not user1)
+        assertEq(assetPricer.userDeposits(address(token), user2), depositAmount, "User2's deposit should be tracked");
+        assertEq(assetPricer.userDeposits(address(token), user1), 0, "User1 should not have deposits");
+        
+        // Verify nonce was incremented for user1 (the sender)
+        assertEq(assetPricer.nextDepositNonce(user1), 1, "User1's nonce should be incremented");
+        assertEq(assetPricer.nextDepositNonce(user2), 0, "User2's nonce should not be incremented");
+    }
+    
+    function testMultipleDepositsIncrementNonce() public {
+        // Setup - whitelist the token for deposits
+        vm.prank(admin);
+        assetPricer.whitelistToken(address(token));
+        
+        uint256 depositAmount = 100 * 10**18;
+        
+        // Mint some tokens to user1
+        token.mint(user1, depositAmount * 2);
+        
+        // Approve the bridge to spend user1's tokens
+        vm.prank(user1);
+        token.approve(address(assetPricer), depositAmount * 2);
+        
+        // First deposit
+        vm.prank(user1);
+        bytes32 hash1 = assetPricer.deposit_asset(address(token), depositAmount, user1);
+        
+        // Second deposit
+        vm.prank(user1);
+        bytes32 hash2 = assetPricer.deposit_asset(address(token), depositAmount, user1);
+        
+        // Verify hashes are different due to different nonces
+        assertTrue(hash1 != hash2, "Commitment hashes should be different");
+        
+        // Verify nonce was incremented twice
+        assertEq(assetPricer.nextDepositNonce(user1), 2, "Nonce should be incremented twice");
+        
+        // Verify deposit tracking accumulates
+        assertEq(assetPricer.userDeposits(address(token), user1), depositAmount * 2, "User deposits should accumulate");
+    }
+    
+    function testCannotDepositNonWhitelistedToken() public {
+        // Do not whitelist the token
+        
+        uint256 depositAmount = 100 * 10**18;
+        
+        // Mint some tokens to user1
+        token.mint(user1, depositAmount);
+        
+        // Approve the bridge to spend user1's tokens
+        vm.prank(user1);
+        token.approve(address(assetPricer), depositAmount);
+        
+        // Attempt deposit should fail
+        vm.prank(user1);
+        vm.expectRevert("ZeroXBridge: Token not whitelisted");
+        assetPricer.deposit_asset(address(token), depositAmount, user1);
+    }
+    
+    function testCannotDepositZeroAmount() public {
+        // Setup - whitelist the token for deposits
+        vm.prank(admin);
+        assetPricer.whitelistToken(address(token));
+        
+        // Attempt deposit with zero amount should fail
+        vm.prank(user1);
+        vm.expectRevert("ZeroXBridge: Amount must be greater than zero");
+        assetPricer.deposit_asset(address(token), 0, user1);
+    }
+    
+    function testCannotDepositToZeroAddress() public {
+        // Setup - whitelist the token for deposits
+        vm.prank(admin);
+        assetPricer.whitelistToken(address(token));
+        
+        uint256 depositAmount = 100 * 10**18;
+        
+        // Mint some tokens to user1
+        token.mint(user1, depositAmount);
+        
+        // Approve the bridge to spend user1's tokens
+        vm.prank(user1);
+        token.approve(address(assetPricer), depositAmount);
+        
+        // Attempt deposit to zero address should fail
+        vm.prank(user1);
+        vm.expectRevert("ZeroXBridge: Invalid user address");
+        assetPricer.deposit_asset(address(token), depositAmount, address(0));
     }
 }

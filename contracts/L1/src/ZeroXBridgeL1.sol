@@ -35,8 +35,17 @@ contract ZeroXBridgeL1 is Ownable {
     // Track claimable funds per user
     mapping(address => uint256) public claimableFunds;
 
+    // Track user deposits per token
+    mapping(address => mapping(address => uint256)) public userDeposits; // token -> user -> amount
+    
+    // Track deposit nonces to prevent replay attacks
+    mapping(address => uint256) public nextDepositNonce; // user -> next nonce
+
     // Approved relayers that can submit proofs
     mapping(address => bool) public approvedRelayers;
+    
+    // Whitelisted tokens mapping
+    mapping(address => bool) public whitelistedTokens;
 
     // Cairo program hash that corresponds to the burn verification program
     uint256 public cairoVerifierId;
@@ -47,8 +56,10 @@ contract ZeroXBridgeL1 is Ownable {
     event FundsUnlocked(address indexed user, uint256 amount, bytes32 commitmentHash);
     event RelayerStatusChanged(address indexed relayer, bool status);
     event FundsClaimed(address indexed user, uint256 amount);
+    event ClaimEvent(address indexed user, uint256 amount);
     event WhitelistEvent(address indexed token);
     event DewhitelistEvent(address indexed token);
+    event DepositEvent(address indexed token, uint256 amount, address indexed user, bytes32 commitmentHash);
     
     constructor(address _gpsVerifier, address _admin, uint256 _cairoVerifierId, address _initialOwner, address _claimableToken)
         Ownable(_initialOwner)
@@ -217,7 +228,55 @@ contract ZeroXBridgeL1 is Ownable {
         whitelistedTokens[_token] = false;
         emit DewhitelistEvent(_token);
     }
+    
     function isWhitelisted(address _token) public view returns (bool) {
         return whitelistedTokens[_token];
     }
+    
+    /**
+     * @dev Deposits ERC20 tokens to be bridged to L2
+     * @param token The address of the token to deposit
+     * @param amount The amount of tokens to deposit
+     * @param user The address that will receive the bridged tokens on L2
+     * @return Returns the generated commitment hash for verification on L2
+     */
+    function deposit_asset(
+        address token,
+        uint256 amount,
+        address user
+    ) external returns (bytes32) {
+        // Verify token is whitelisted
+        require(whitelistedTokens[token], "ZeroXBridge: Token not whitelisted");
+        require(amount > 0, "ZeroXBridge: Amount must be greater than zero");
+        require(user != address(0), "ZeroXBridge: Invalid user address");
+        
+        // Get the next nonce for this user
+        uint256 nonce = nextDepositNonce[msg.sender];
+        // Increment the nonce for replay protection
+        nextDepositNonce[msg.sender] = nonce + 1;
+        
+        // Transfer tokens from user to this contract
+        IERC20(token).safeTransferFrom(msg.sender, address(this), amount);
+        
+        // Update user deposits tracking
+        userDeposits[token][user] += amount;
+        
+        // Generate commitment hash for verification on L2
+        // Hash includes token address, amount, user address, nonce, and chain ID for uniqueness
+        bytes32 commitmentHash = keccak256(
+            abi.encodePacked(
+                token,
+                amount,
+                user,
+                nonce,
+                block.chainid
+            )
+        );
+        
+        // Emit deposit event with all relevant details
+        emit DepositEvent(token, amount, user, commitmentHash);
+        
+        return commitmentHash;
+    }
 }
+

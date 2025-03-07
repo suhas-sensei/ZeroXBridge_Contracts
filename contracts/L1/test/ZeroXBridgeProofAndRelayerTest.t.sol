@@ -79,7 +79,8 @@ contract ZeroXBridgeTest is Test {
         token = new MockERC20("MockToken", "MTK");
 
         // Initialize bridge with mock verifier
-        bridge = new ZeroXBridgeL1(address(mockVerifier), cairoVerifierId, owner, address(token));
+        address admin = address(0x123);
+        bridge = new ZeroXBridgeL1(address(mockVerifier), admin, cairoVerifierId, owner, address(token));
 
         // Setup approved relayer
         bridge.setRelayerStatus(relayer, true);
